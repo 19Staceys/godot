@@ -1,319 +1,257 @@
-/*************************************************************************/
-/*  memory.h                                                             */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                    http://www.godotengine.org                         */
-/*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
-#ifndef MEMORY_H
-#define MEMORY_H
+/**************************************************************************/
+/*  memory.h                                                              */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
-#include <stddef.h>
-#include "safe_refcount.h"
-#include "os/memory_pool_dynamic.h"
-#include "os/memory_pool_static.h"
+#pragma once
 
+#include "core/error/error_macros.h"
 
-/**
-	@author Juan Linietsky <reduzio@gmail.com>
-*/
+#include <new> // IWYU pragma: keep // `new` operators.
+#include <type_traits>
 
-class MID {
+namespace Memory {
+constexpr size_t get_aligned_address(size_t p_address, size_t p_alignment) {
+	const size_t n_bytes_unaligned = p_address % p_alignment;
+	return (n_bytes_unaligned == 0) ? p_address : (p_address + p_alignment - n_bytes_unaligned);
+}
 
-	struct Data {
-	
-		SafeRefCount refcount;
-		MemoryPoolDynamic::ID id;
-	};
+#if defined(__MINGW32__) && !defined(__MINGW64__)
+// Note: Using hardcoded value, since the value can end up different in different compile units on 32-bit windows
+// due to a compiler bug (see GH-113145)
+static constexpr size_t MAX_ALIGN = 16;
+static_assert(MAX_ALIGN % alignof(max_align_t) == 0);
+#else
+static constexpr size_t MAX_ALIGN = alignof(max_align_t);
+#endif
 
-	mutable Data *data;
-	
-	void unref() {
-	
-		if (!data)
-			return;
-		if (data->refcount.unref()) {
-		
-			if (data->id!=MemoryPoolDynamic::INVALID_ID)
-				MemoryPoolDynamic::get_singleton()->free(data->id);	
-			MemoryPoolStatic::get_singleton()->free(data);	
-		}
-		
-		data=NULL;
-	}
-	
-	void ref(Data *p_data) {
-	
-		if (data==p_data)
-			return;
-		unref();
-		
-		if (p_data && p_data->refcount.ref())
-			data=p_data;		
-	}
-	
-friend class MID_Lock;
+// Alignment:  ↓ max_align_t        ↓ uint64_t          ↓ MAX_ALIGN
+//             ┌─────────────────┬──┬────────────────┬──┬───────────...
+//             │ uint64_t        │░░│ uint64_t       │░░│ T[]
+//             │ alloc size      │░░│ element count  │░░│ data
+//             └─────────────────┴──┴────────────────┴──┴───────────...
+// Offset:     ↑ SIZE_OFFSET        ↑ ELEMENT_OFFSET    ↑ DATA_OFFSET
 
-	inline void lock() {
-	
-		if (data && data->id!=MemoryPoolDynamic::INVALID_ID)
-			MemoryPoolDynamic::get_singleton()->lock(data->id);
-	}
-	inline void unlock() {
-	
-		if (data && data->id!=MemoryPoolDynamic::INVALID_ID)
-			MemoryPoolDynamic::get_singleton()->unlock(data->id);
-	
-	}
-	
-	inline void * get() {
-	
-		if (data && data->id!=MemoryPoolDynamic::INVALID_ID)
-			return MemoryPoolDynamic::get_singleton()->get(data->id);
-		
-		return NULL;
-	}
-	
-	Error _resize(size_t p_size) { 
-				
-		if (p_size==0 && (!data || data->id==MemoryPoolDynamic::INVALID_ID))
-				return OK;
-		if (p_size && !data) {
-			// create data because we'll need it
-			data = (Data*)MemoryPoolStatic::get_singleton()->alloc(sizeof(Data),"MID::Data");
-			ERR_FAIL_COND_V( !data,ERR_OUT_OF_MEMORY );
-			data->refcount.init();
-			data->id=MemoryPoolDynamic::INVALID_ID;			
-		}
-		
-		if (p_size==0 && data && data->id==MemoryPoolDynamic::INVALID_ID) {
-		
-			MemoryPoolDynamic::get_singleton()->free(data->id);
-			data->id=MemoryPoolDynamic::INVALID_ID;
-		}
-		
-		if (p_size>0) {
-		 
-		 	if (data->id==MemoryPoolDynamic::INVALID_ID) {
-		
-				data->id=MemoryPoolDynamic::get_singleton()->alloc(p_size,"Unnamed MID");
-				ERR_FAIL_COND_V( data->id==MemoryPoolDynamic::INVALID_ID, ERR_OUT_OF_MEMORY );
+inline constexpr size_t SIZE_OFFSET = 0;
+inline constexpr size_t ELEMENT_OFFSET = get_aligned_address(SIZE_OFFSET + sizeof(uint64_t), alignof(uint64_t));
+inline constexpr size_t DATA_OFFSET = get_aligned_address(ELEMENT_OFFSET + sizeof(uint64_t), MAX_ALIGN);
 
-			} else {
-			
-				MemoryPoolDynamic::get_singleton()->realloc(data->id,p_size);
-				ERR_FAIL_COND_V( data->id==MemoryPoolDynamic::INVALID_ID, ERR_OUT_OF_MEMORY );
-			
-			}
-		}				
-		
-		return OK;
-	}
-friend class Memory;
-	
-	MID(MemoryPoolDynamic::ID p_id) {
-	
-		data = (Data*)MemoryPoolStatic::get_singleton()->alloc(sizeof(Data),"MID::Data");
-		data->refcount.init();
-		data->id=p_id;
-	}
-public:	
+template <bool p_ensure_zero = false>
+void *alloc_static(size_t p_bytes, bool p_pad_align = false);
+_FORCE_INLINE_ static void *alloc_static_zeroed(size_t p_bytes, bool p_pad_align = false) {
+	return alloc_static<true>(p_bytes, p_pad_align);
+}
+void *realloc_static(void *p_memory, size_t p_bytes, bool p_pad_align = false);
+void free_static(void *p_ptr, bool p_pad_align = false);
 
-	bool is_valid() const { return data; }
-	operator bool() const { return data; }
-	
-		
-	size_t get_size() const { return (data && data->id!=MemoryPoolDynamic::INVALID_ID) ? MemoryPoolDynamic::get_singleton()->get_size(data->id) : 0; }
-	Error resize(size_t p_size) { return _resize(p_size); }
-	inline void operator=(const MID& p_mid) { ref( p_mid.data ); }
-	inline bool is_locked() const { return (data && data->id!=MemoryPoolDynamic::INVALID_ID) ? MemoryPoolDynamic::get_singleton()->is_locked(data->id) : false; }
-	inline MID(const MID& p_mid) { data=NULL; ref( p_mid.data ); }
-	inline MID() { data = NULL; }
-	~MID() { unref(); }
-};
+//	                            ↓ return value of alloc_aligned_static
+//	┌─────────────────┬─────────┬─────────┬──────────────────┐
+//	│ padding (up to  │ uint32_t│ void*   │ padding (up to   │
+//	│ p_alignment - 1)│ offset  │ p_bytes │ p_alignment - 1) │
+//	└─────────────────┴─────────┴─────────┴──────────────────┘
+//
+// alloc_aligned_static will allocate p_bytes + p_alignment - 1 + sizeof(uint32_t) and
+// then offset the pointer until alignment is satisfied.
+//
+// This offset is stored before the start of the returned ptr so we can retrieve the original/real
+// start of the ptr in order to free it.
+//
+// The rest is wasted as padding in the beginning and end of the ptr. The sum of padding at
+// both start and end of the block must add exactly to p_alignment - 1.
+//
+// p_alignment MUST be a power of 2.
+void *alloc_aligned_static(size_t p_bytes, size_t p_alignment);
+void *realloc_aligned_static(void *p_memory, size_t p_bytes, size_t p_prev_bytes, size_t p_alignment);
+// Pass the ptr returned by alloc_aligned_static to free it.
+// e.g.
+//	void *data = realloc_aligned_static( bytes, 16 );
+//  free_aligned_static( data );
+void free_aligned_static(void *p_memory);
 
-
-class MID_Lock {
-
-	MID mid;
-	
-public:
-
-	void *data() { return mid.get(); }
-
-	void operator=(const MID_Lock& p_lock ) { mid.unlock(); mid = p_lock.mid; mid.lock(); }
-	inline MID_Lock(const MID& p_mid) { mid=p_mid; mid.lock(); }
-	inline MID_Lock(const MID_Lock& p_lock) { mid=p_lock.mid; mid.lock(); }
-	MID_Lock() {}
-	~MID_Lock() { mid.unlock(); }
-};
-
-
-class Memory{
-
-	Memory();
-public:
-    
-	static void * alloc_static(size_t p_bytes,const char *p_descr="");
-	static void * realloc_static(void *p_memory,size_t p_bytes);
-	static void free_static(void *p_ptr);
-	static size_t get_static_mem_available();
-	static size_t get_static_mem_usage(); 
-	static size_t get_static_mem_max_usage();
-	static void dump_static_mem_to_file(const char* p_file);
-
-	static MID alloc_dynamic(size_t p_bytes, const char *p_descr="");
-	static Error realloc_dynamic(MID p_mid,size_t p_bytes);
-    
-	static size_t get_dynamic_mem_available();
-	static size_t get_dynamic_mem_usage();
-    
-};
-
-template<class T>
-struct MemAalign {
-	static _FORCE_INLINE_ int get_align() { return DEFAULT_ALIGNMENT; }
-};
+uint64_t get_mem_available();
+uint64_t get_mem_usage();
+uint64_t get_mem_max_usage();
+}; //namespace Memory
 
 class DefaultAllocator {
 public:
-	_FORCE_INLINE_ static void *alloc(size_t p_memory) { return Memory::alloc_static(p_memory, ""); }
-	_FORCE_INLINE_ static void free(void *p_ptr) { return Memory::free_static(p_ptr); }
-
+	_FORCE_INLINE_ static void *alloc(size_t p_memory) { return Memory::alloc_static(p_memory, false); }
+	_FORCE_INLINE_ static void free(void *p_ptr) { Memory::free_static(p_ptr, false); }
 };
 
+// Overload of `new` operator to use the `Memory::alloc_static()` function.
+// The `DefaultAllocator` parameter is just a tag to select this overload.
+// NOTE: do not inline `new` operators due to GCC+LTO compiler bug (see GH-119752).
+void *operator new(size_t p_size, DefaultAllocator p_allocator);
 
-void * operator new(size_t p_size,const char *p_description); ///< operator new that takes a description and uses MemoryStaticPool
-void * operator new(size_t p_size,void* (*p_allocfunc)(size_t p_size)); ///< operator new that takes a description and uses MemoryStaticPool
+// Overload of `new` operator to use a custom allocation function.
+void *operator new(size_t p_size, void *(*p_allocfunc)(size_t p_size));
 
-void * operator new(size_t p_size,void *p_pointer,size_t check, const char *p_description); ///< operator new that takes a description and uses a pointer to the preallocated memory
-
-#ifdef DEBUG_MEMORY_ENABLED
-
-#define memalloc(m_size) Memory::alloc_static(m_size, __FILE__":"__STR(__LINE__)", memalloc.")
-#define memrealloc(m_mem,m_size) Memory::realloc_static(m_mem,m_size)
-#define memfree(m_size) Memory::free_static(m_size)
-
-#else
+#if defined(_MSC_VER) && !defined(__clang__)
+// When compiling with VC++ 2017, the above declarations of placement new generate many irrelevant warnings (C4291).
+// The purpose of the following definitions is to muffle these warnings, not to provide a usable implementation of placement delete.
+inline void operator delete(void *p_mem, DefaultAllocator p_allocator) {
+	CRASH_NOW_MSG("Call to placement delete should not happen.");
+}
+inline void operator delete(void *p_mem, void *(*p_allocfunc)(size_t p_size)) {
+	CRASH_NOW_MSG("Call to placement delete should not happen.");
+}
+#endif // defined(_MSC_VER) && !defined(__clang__)
 
 #define memalloc(m_size) Memory::alloc_static(m_size)
-#define memrealloc(m_mem,m_size) Memory::realloc_static(m_mem,m_size)
-#define memfree(m_size) Memory::free_static(m_size)
+#define memalloc_zeroed(m_size) Memory::alloc_static_zeroed(m_size)
+#define memrealloc(m_mem, m_size) Memory::realloc_static(m_mem, m_size)
+#define memfree(m_mem) Memory::free_static(m_mem)
 
-#endif
+template <typename T, typename Enable = void>
+struct memnew_result {
+	using class_name = T *;
+};
 
-#ifdef DEBUG_MEMORY_ENABLED
+template <typename T>
+using memnew_result_t = typename memnew_result<T>::class_name;
 
-#define dynalloc(m_size) Memory::alloc_dynamic(m_size, __FILE__":"__STR(__LINE__)", type: DYNAMIC")
-#define dynrealloc(m_mem,m_size) m_mem.resize(m_size)
+_ALWAYS_INLINE_ void postinitialize_handler(void *) {}
 
-#else
-
-#define dynalloc(m_size) Memory::alloc_dynamic(m_size)
-#define dynrealloc(m_mem,m_size) m_mem.resize(m_size)
-
-#endif
-
-
-_FORCE_INLINE_ void postinitialize_handler(void *) {}
-
-
-template<class T>
-_FORCE_INLINE_ T *_post_initialize(T *p_obj) {
-	
-	postinitialize_handler(p_obj);
-	return p_obj;
+template <typename T>
+_ALWAYS_INLINE_ memnew_result_t<T> _post_initialize(T *p_obj) {
+	memnew_result_t<T> result{ p_obj };
+	postinitialize_handler(result);
+	return result;
 }
 
-#ifdef DEBUG_MEMORY_ENABLED
+#define memnew(m_class) _post_initialize(::new (DefaultAllocator{}) m_class)
 
-#define memnew(m_class) _post_initialize(new(__FILE__":"__STR(__LINE__)", memnew type: "__STR(m_class)) m_class)
-#define memnew_placement(m_placement,m_class) _post_initialize(new(m_placement,sizeof(m_class),__FILE__":"__STR(__LINE__)", type: "__STR(m_class)) m_class)
+#define memnew_allocator(m_class, m_allocator) _post_initialize(::new (m_allocator::alloc) m_class)
+#define memnew_placement(m_placement, m_class) _post_initialize(::new (m_placement) m_class)
 
-#else
+_ALWAYS_INLINE_ bool predelete_handler(void *) {
+	return true;
+}
 
-#define memnew(m_class) _post_initialize(new("") m_class)
-#define memnew_placement(m_placement,m_class) _post_initialize(new(m_placement,sizeof(m_class),"") m_class)
-
-#endif
-
-#define memnew_allocator(m_class,m_allocator) _post_initialize(new(m_allocator::alloc) m_class)
-
-
-_FORCE_INLINE_ bool predelete_handler(void *) { return true; }
-
-template<class T>
+template <typename T>
 void memdelete(T *p_class) {
-		
-	if (!predelete_handler(p_class))
+	if (unlikely(p_class == nullptr)) {
+		return;
+	}
+	if (!predelete_handler(p_class)) {
 		return; // doesn't want to be deleted
-	p_class->~T();
-	Memory::free_static(p_class);
+	}
+	if constexpr (!std::is_trivially_destructible_v<T>) {
+		p_class->~T();
+	}
+
+	Memory::free_static(p_class, false);
 }
 
-template<class T,class A>
+template <typename T, typename A>
 void memdelete_allocator(T *p_class) {
-
-	if (!predelete_handler(p_class))
+	if (unlikely(p_class == nullptr)) {
+		return;
+	}
+	if (!predelete_handler(p_class)) {
 		return; // doesn't want to be deleted
-	p_class->~T();
+	}
+	if constexpr (!std::is_trivially_destructible_v<T>) {
+		p_class->~T();
+	}
+
 	A::free(p_class);
 }
 
-#define memdelete_notnull(m_v) { if (m_v) memdelete(m_v); }
-#ifdef DEBUG_MEMORY_ENABLED
+#define memnew_arr(m_class, m_count) memnew_arr_template<m_class>(m_count)
 
-#define memnew_arr( m_class, m_count ) memnew_arr_template<m_class>(m_count,__FILE__":"__STR(__LINE__)", memnew_arr type: "_STR(m_class))
+_FORCE_INLINE_ uint64_t *_get_element_count_ptr(uint8_t *p_ptr) {
+	return (uint64_t *)(p_ptr - Memory::DATA_OFFSET + Memory::ELEMENT_OFFSET);
+}
 
-#else
-
-#define memnew_arr( m_class, m_count ) memnew_arr_template<m_class>(m_count)
-
-#endif
-
-template<typename T>
-T* memnew_arr_template(size_t p_elements,const char *p_descr="") {
-
-	if (p_elements==0)
-		return 0;
+template <typename T>
+T *memnew_arr_template(size_t p_elements) {
+	if (p_elements == 0) {
+		return nullptr;
+	}
 	/** overloading operator new[] cannot be done , because it may not return the real allocated address (it may pad the 'element count' before the actual array). Because of that, it must be done by hand. This is the
-	same strategy used by std::vector, and the DVector class, so it should be safe.*/
+	same strategy used by std::vector, and the Vector class, so it should be safe.*/
 
 	size_t len = sizeof(T) * p_elements;
-	unsigned int *mem = (unsigned int*)Memory::alloc_static( len + DEFAULT_ALIGNMENT, p_descr );
-	T *failptr=0; //get rid of a warning
-	ERR_FAIL_COND_V( !mem, failptr );
-	*mem=p_elements;
-	mem = (unsigned int *)( ((uint8_t*)mem) + DEFAULT_ALIGNMENT);
-	T* elems = (T*)mem;
+	uint8_t *mem = (uint8_t *)Memory::alloc_static(len, true);
+	T *failptr = nullptr; //get rid of a warning
+	ERR_FAIL_NULL_V(mem, failptr);
 
-	/* call operator new */
-	for (size_t i=0;i<p_elements;i++) {
-		new(&elems[i],sizeof(T),p_descr) T;
+	uint64_t *_elem_count_ptr = _get_element_count_ptr(mem);
+	*(_elem_count_ptr) = p_elements;
+
+	if constexpr (!std::is_trivially_constructible_v<T>) {
+		T *elems = (T *)mem;
+
+		/* call operator new */
+		for (size_t i = 0; i < p_elements; i++) {
+			::new (&elems[i]) T;
+		}
 	}
 
-	return (T*)mem;
+	return (T *)mem;
+}
+
+// Fast alternative to a loop constructor pattern.
+template <typename T>
+_FORCE_INLINE_ void memnew_arr_placement(T *p_start, size_t p_num) {
+	if constexpr (is_zero_constructible_v<T>) {
+		// Can optimize with memset.
+		memset(static_cast<void *>(p_start), 0, p_num * sizeof(T));
+	} else {
+		// Need to use a for loop.
+		for (size_t i = 0; i < p_num; i++) {
+			memnew_placement(p_start + i, T());
+		}
+	}
+}
+
+// Convenient alternative to a loop copy pattern.
+template <typename T>
+_FORCE_INLINE_ void copy_arr_placement(T *p_dst, const T *p_src, size_t p_num) {
+	if constexpr (std::is_trivially_copyable_v<T>) {
+		memcpy((uint8_t *)p_dst, (uint8_t *)p_src, p_num * sizeof(T));
+	} else {
+		for (size_t i = 0; i < p_num; i++) {
+			memnew_placement(p_dst + i, T(p_src[i]));
+		}
+	}
+}
+
+// Convenient alternative to a loop destructor pattern.
+template <typename T>
+_FORCE_INLINE_ void destruct_arr_placement(T *p_dst, size_t p_num) {
+	if constexpr (!std::is_trivially_destructible_v<T>) {
+		for (size_t i = 0; i < p_num; i++) {
+			p_dst[i].~T();
+		}
+	}
 }
 
 /**
@@ -321,42 +259,46 @@ T* memnew_arr_template(size_t p_elements,const char *p_descr="") {
  * an allocated-with memnew_arr() array
  */
 
-template<typename T>
+template <typename T>
 size_t memarr_len(const T *p_class) {
-
-	uint8_t* ptr = ((uint8_t*)p_class) - DEFAULT_ALIGNMENT;
-	return *(size_t*)ptr;
+	uint8_t *ptr = (uint8_t *)p_class;
+	uint64_t *_elem_count_ptr = _get_element_count_ptr(ptr);
+	return *(_elem_count_ptr);
 }
 
-template<typename T>
+template <typename T>
 void memdelete_arr(T *p_class) {
+	uint8_t *ptr = (uint8_t *)p_class;
 
-	unsigned int * elems = (unsigned int*)(((uint8_t*)p_class) - DEFAULT_ALIGNMENT);
+	if constexpr (!std::is_trivially_destructible_v<T>) {
+		uint64_t *_elem_count_ptr = _get_element_count_ptr(ptr);
+		uint64_t elem_count = *(_elem_count_ptr);
 
-	for (unsigned int i=0;i<*elems;i++) {
+		for (uint64_t i = 0; i < elem_count; i++) {
+			p_class[i].~T();
+		}
+	}
 
-		p_class[i].~T();
-	};
-	Memory::free_static(elems);
+	Memory::free_static(ptr, true);
 }
-
 
 struct _GlobalNil {
-
-	int color;
-	_GlobalNil *right;
-	_GlobalNil *left;
-	_GlobalNil *parent;
+	int color = 1;
+	_GlobalNil *right = nullptr;
+	_GlobalNil *left = nullptr;
+	_GlobalNil *parent = nullptr;
 
 	_GlobalNil();
-
 };
 
 struct _GlobalNilClass {
-
 	static _GlobalNil _nil;
 };
 
-
-
-#endif
+template <typename T>
+class DefaultTypedAllocator {
+public:
+	template <typename... Args>
+	_FORCE_INLINE_ T *new_allocation(const Args &&...p_args) { return memnew(T(p_args...)); }
+	_FORCE_INLINE_ void delete_allocation(T *p_allocation) { memdelete(p_allocation); }
+};

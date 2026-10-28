@@ -1,84 +1,75 @@
-Import('env')
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
 
-env.drivers_sources=[]
-#env.add_source_files(env.drivers_sources,"*.cpp")
-env.Append(CPPPATH=["vorbis"])
-Export('env')
+from methods import print_error
 
-SConscript('unix/SCsub');
-SConscript('alsa/SCsub');
-SConscript('windows/SCsub');
-SConscript('gles2/SCsub');
-SConscript('gles1/SCsub');
-SConscript('gl_context/SCsub');
+Import("env")
 
-if (env["png"]=="yes"):
-	SConscript("png/SCsub");
-if (env["jpg"]=="yes"):
-	SConscript("jpg/SCsub");
-if (env["webp"]=="yes"):
-	SConscript("webp/SCsub");
-SConscript("dds/SCsub");
-SConscript("pvr/SCsub");
-SConscript("etc1/SCsub")
-if (env["builtin_zlib"]=="yes"):
-	SConscript("builtin_zlib/SCsub");
-SConscript("rtaudio/SCsub");
-SConscript("nedmalloc/SCsub");
-SConscript("trex/SCsub");
-SConscript("chibi/SCsub");
-if (env["vorbis"]=="yes" or env["speex"]=="yes" or env["theora"]=="yes"):
-        SConscript("ogg/SCsub");
-if (env["vorbis"]=="yes"):
-        SConscript("vorbis/SCsub");
-if (env["tools"]=="yes"):
-	SConscript("convex_decomp/SCsub");
-if (env["theora"]=="yes"):
-	SConscript("theora/SCsub");
-if (env['speex']=='yes'):
-	SConscript("speex/SCsub");
-if (env['musepack']=='yes'):
-	SConscript("mpc/SCsub");
-if (env["squish"]=="yes" and env["tools"]=="yes"):
-	SConscript("squish/SCsub");
+env.drivers_sources = []
+supported = env.get("supported", [])
 
-num = 0
-cur_base = ""
-total = len(env.drivers_sources)
-max_src = 64
-list = []
-lib_list = []
+# OS drivers
+SConscript("unix/SCsub")
+SConscript("windows/SCsub")
 
-import string
+# Sounds drivers
+SConscript("alsa/SCsub")
+SConscript("pulseaudio/SCsub")
+if env["platform"] == "windows":
+    SConscript("wasapi/SCsub")
+    if not env.msvc:
+        SConscript("backtrace/SCsub")
+if env["xaudio2"]:
+    if "xaudio2" not in supported:
+        print_error("Target platform '{}' does not support the XAudio2 audio driver".format(env["platform"]))
+        Exit(255)
+    SConscript("xaudio2/SCsub")
 
-for f in env.drivers_sources:
-	fname = ""
-	if type(f) == type(""):
-		fname = env.File(f).path
-	else:
-		fname = env.File(f)[0].path
-	#base = string.join(fname.split("/")[:-1], "/")
-	fname = fname.replace("\\", "/")
-	base = string.join(fname.split("/")[:2], "/")
-	if base != cur_base and len(list) > max_src:
-		lib = env.Library("drivers"+str(num), list)
-		lib_list.append(lib)
-		list = []
-		num = num+1
-	cur_base = base
-	list.append(f)
+# Shared Apple platform drivers
+if env["platform"] in ["macos", "ios", "visionos"]:
+    SConscript("apple/SCsub")
+    SConscript("coreaudio/SCsub")
+if env["platform"] in ["ios", "visionos"]:
+    SConscript("apple_embedded/SCsub")
 
-if len(list) > 0:
-	lib = env.Library("drivers"+str(num), list)
-	lib_list.append(lib)
+# Accessibility
+if env["accesskit"] and env["platform"] in ["macos", "windows", "linuxbsd", "android", "ios"]:
+    SConscript("accesskit/SCsub")
 
+# Midi drivers
+SConscript("alsamidi/SCsub")
+if env["platform"] in ["macos"]:
+    SConscript("coremidi/SCsub")
+SConscript("winmidi/SCsub")
 
-drivers_base=[]
-env.add_source_files(drivers_base,"*.cpp")
-lib_list.insert(0, env.Library("drivers", drivers_base, LIBSUFFIX=env['platform_libsuffix']))
+# Graphics drivers
+if env["rendering_device"]:
+    if env["vulkan"]:
+        SConscript("vulkan/SCsub")
+    if env["d3d12"]:
+        if "d3d12" not in supported:
+            print_error("Target platform '{}' does not support the D3D12 rendering driver".format(env["platform"]))
+            Exit(255)
+        SConscript("d3d12/SCsub")
+    if env["metal"]:
+        if "metal" not in supported:
+            print_error("Target platform '{}' does not support the Metal rendering driver".format(env["platform"]))
+            Exit(255)
+        SConscript("metal/SCsub")
+if env["opengl3"]:
+    SConscript("gl_context/SCsub")
+    SConscript("gles3/SCsub")
+    SConscript("egl/SCsub")
 
-env.Prepend(LIBS=lib_list)
+# Input drivers
+if env["sdl"] and env["platform"] in ["linuxbsd", "macos", "windows", "ios", "visionos"]:
+    # TODO: Evaluate support for Android and Web.
+    SConscript("sdl/SCsub")
 
-#lib = env.Library("drivers",env.drivers_sources)
-#env.Prepend(LIBS=[lib])
+# Core dependencies
+SConscript("png/SCsub")
 
+env.add_source_files(env.drivers_sources, "*.cpp")
+
+lib = env.add_library("drivers", env.drivers_sources)
+env.Prepend(LIBS=[lib])

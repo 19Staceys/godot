@@ -1,187 +1,189 @@
-/*************************************************************************/
-/*  file_access_android.cpp                                              */
-/*************************************************************************/
-/*                       This file is part of:                           */
-/*                           GODOT ENGINE                                */
-/*                    http://www.godotengine.org                         */
-/*************************************************************************/
-/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                 */
-/*                                                                       */
-/* Permission is hereby granted, free of charge, to any person obtaining */
-/* a copy of this software and associated documentation files (the       */
-/* "Software"), to deal in the Software without restriction, including   */
-/* without limitation the rights to use, copy, modify, merge, publish,   */
-/* distribute, sublicense, and/or sell copies of the Software, and to    */
-/* permit persons to whom the Software is furnished to do so, subject to */
-/* the following conditions:                                             */
-/*                                                                       */
-/* The above copyright notice and this permission notice shall be        */
-/* included in all copies or substantial portions of the Software.       */
-/*                                                                       */
-/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,       */
-/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF    */
-/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.*/
-/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY  */
-/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,  */
-/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE     */
-/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                */
-/*************************************************************************/
+/**************************************************************************/
+/*  file_access_android.cpp                                               */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
 #include "file_access_android.h"
-#include "print_string.h"
 
-#ifdef ANDROID_NATIVE_ACTIVITY
+#include "thread_jandroid.h"
 
+#include "core/string/print_string.h"
 
-AAssetManager *FileAccessAndroid::asset_manager=NULL;
+#include <android/asset_manager_jni.h>
 
+AAssetManager *FileAccessAndroid::asset_manager = nullptr;
+jobject FileAccessAndroid::j_asset_manager = nullptr;
 
-void FileAccessAndroid::make_default() {
-
-	create_func=create_android;
+String FileAccessAndroid::get_path() const {
+	return path_src;
 }
 
-FileAccess* FileAccessAndroid::create_android() {
-
-	return memnew(FileAccessAndroid);
+String FileAccessAndroid::get_path_absolute() const {
+	return absolute_path;
 }
 
+Error FileAccessAndroid::open_internal(const String &p_path, int p_mode_flags) {
+	_close();
 
-Error FileAccessAndroid::open(const String& p_path, int p_mode_flags) {
+	path_src = p_path;
+	String path = fix_path(p_path).simplify_path();
+	absolute_path = path;
+	if (path.begins_with("/")) {
+		path = path.substr(1);
+	} else if (path.begins_with("res://")) {
+		path = path.substr(6);
+	}
 
-	String path=fix_path(p_path).simplify_path();
-	if (path.begins_with("/"))
-		path=path.substr(1,path.length());
-	else if (path.begins_with("res://"))
-		path=path.substr(6,path.length());
-
-
-
-	ERR_FAIL_COND_V(p_mode_flags&FileAccess::WRITE,ERR_UNAVAILABLE); //can't write on android..
-	a=AAssetManager_open(asset_manager,path.utf8().get_data(),AASSET_MODE_STREAMING);
-	if (!a)
+	ERR_FAIL_COND_V(p_mode_flags & FileAccess::WRITE, ERR_UNAVAILABLE); //can't write on android..
+	asset = AAssetManager_open(asset_manager, path.utf8().get_data(), AASSET_MODE_STREAMING);
+	if (!asset) {
 		return ERR_CANT_OPEN;
-	//ERR_FAIL_COND_V(!a,ERR_FILE_NOT_FOUND);
-	len=AAsset_getLength(a);
-	pos=0;
-	eof=false;
+	}
+	len = AAsset_getLength(asset);
+	pos = 0;
+	eof = false;
 
 	return OK;
 }
 
-void FileAccessAndroid::close() {
-
-	if (!a)
+void FileAccessAndroid::_close() {
+	if (!asset) {
 		return;
-	AAsset_close(a);
-	a=NULL;
-}
-bool FileAccessAndroid::is_open() const {
-
-	return a!=NULL;
-}
-
-void FileAccessAndroid::seek(size_t p_position) {
-
-	ERR_FAIL_COND(!a);
-	AAsset_seek(a,p_position,SEEK_SET);
-	pos=p_position;
-	if (pos>len) {
-		pos=len;
-		eof=true;
-	} else {
-		eof=false;
 	}
-
+	AAsset_close(asset);
+	asset = nullptr;
 }
+
+bool FileAccessAndroid::is_open() const {
+	return asset != nullptr;
+}
+
+void FileAccessAndroid::seek(uint64_t p_position) {
+	ERR_FAIL_NULL(asset);
+
+	AAsset_seek(asset, p_position, SEEK_SET);
+	pos = p_position;
+	if (pos > len) {
+		pos = len;
+		eof = true;
+	} else {
+		eof = false;
+	}
+}
+
 void FileAccessAndroid::seek_end(int64_t p_position) {
-
-	ERR_FAIL_COND(!a);
-	AAsset_seek(a,p_position,SEEK_END);
-	pos=len+p_position;
-
+	ERR_FAIL_NULL(asset);
+	AAsset_seek(asset, p_position, SEEK_END);
+	pos = len + p_position;
 }
-size_t FileAccessAndroid::get_pos() const {
 
+uint64_t FileAccessAndroid::get_position() const {
 	return pos;
 }
-size_t FileAccessAndroid::get_len() const {
 
+uint64_t FileAccessAndroid::get_length() const {
 	return len;
 }
 
 bool FileAccessAndroid::eof_reached() const {
-
 	return eof;
 }
 
-uint8_t FileAccessAndroid::get_8() const {
+uint64_t FileAccessAndroid::get_buffer(uint8_t *p_dst, uint64_t p_length) const {
+	ERR_FAIL_COND_V(!p_dst && p_length > 0, -1);
 
+	int r = AAsset_read(asset, p_dst, p_length);
 
-	if (pos>=len) {
-		eof=true;
-		return 0;
+	if (pos + p_length > len) {
+		eof = true;
 	}
 
-
-	uint8_t byte;	
-	AAsset_read(a,&byte,1);
-	pos++;
-	return byte;
-
-}
-int FileAccessAndroid::get_buffer(uint8_t *p_dst, int p_length) const {
-
-
-	off_t r = AAsset_read(a,p_dst,p_length);
-	if (r>=0) {
-		pos+=r;
-		if (pos>len) {
-			pos=len;
-			eof=true;
+	if (r >= 0) {
+		pos += r;
+		if (pos > len) {
+			pos = len;
 		}
 	}
-	return r;
 
+	return r;
+}
+
+int64_t FileAccessAndroid::_get_size(const String &p_file) {
+	return AAsset_getLength64(asset);
 }
 
 Error FileAccessAndroid::get_error() const {
-
-	return eof?ERR_FILE_EOF:OK; //not sure what else it may happen
+	return eof ? ERR_FILE_EOF : OK; // not sure what else it may happen
 }
 
-void FileAccessAndroid::store_8(uint8_t p_dest) {
-
+void FileAccessAndroid::flush() {
 	ERR_FAIL();
-
 }
 
-bool FileAccessAndroid::file_exists(const String& p_path) {
+bool FileAccessAndroid::store_buffer(const uint8_t *p_src, uint64_t p_length) {
+	ERR_FAIL_V(false);
+}
 
-	String path=fix_path(p_path).simplify_path();
-	if (path.begins_with("/"))
-		path=path.substr(1,path.length());
-	else if (path.begins_with("res://"))
-		path=path.substr(6,path.length());
+bool FileAccessAndroid::file_exists(const String &p_path) {
+	String path = fix_path(p_path).simplify_path();
+	if (path.begins_with("/")) {
+		path = path.substr(1);
+	} else if (path.begins_with("res://")) {
+		path = path.substr(6);
+	}
 
-	AAsset *at=AAssetManager_open(asset_manager,path.utf8().get_data(),AASSET_MODE_STREAMING);
+	AAsset *at = AAssetManager_open(asset_manager, path.utf8().get_data(), AASSET_MODE_STREAMING);
 
-	if (!at)
+	if (!at) {
 		return false;
+	}
 
 	AAsset_close(at);
 	return true;
-
 }
 
-
-FileAccessAndroid::FileAccessAndroid() {
-	a=NULL;
-	eof=false;
+void FileAccessAndroid::close() {
+	_close();
 }
 
-
-FileAccessAndroid::~FileAccessAndroid()
-{
-	close();
+FileAccessAndroid::~FileAccessAndroid() {
+	_close();
 }
-#endif
+
+void FileAccessAndroid::setup(jobject p_asset_manager) {
+	JNIEnv *env = get_jni_env();
+	j_asset_manager = env->NewGlobalRef(p_asset_manager);
+	asset_manager = AAssetManager_fromJava(env, j_asset_manager);
+}
+
+void FileAccessAndroid::terminate() {
+	JNIEnv *env = get_jni_env();
+	ERR_FAIL_NULL(env);
+
+	env->DeleteGlobalRef(j_asset_manager);
+}

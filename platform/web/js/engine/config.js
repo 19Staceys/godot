@@ -1,0 +1,405 @@
+/**
+ * An object used to configure the Engine instance based on godot export options, and to override those in custom HTML
+ * templates if needed.
+ *
+ * @header Engine configuration
+ * @summary The Engine configuration object. This is just a typedef, create it like a regular object, e.g.:
+ *
+ * ``const MyConfig = { executable: 'godot', unloadAfterInit: false }``
+ *
+ * @typedef {!Object} EngineConfig
+ */
+const EngineConfig = {}; // eslint-disable-line no-unused-vars
+
+/**
+ * @struct
+ * @constructor
+ * @param {?EngineConfig} initConfig
+ * @ignore
+ */
+const InternalConfig = function (initConfig) { // eslint-disable-line no-unused-vars
+	const cfg = /** @lends {InternalConfig.prototype} */ {
+		/**
+		 * Whether to unload the engine automatically after the instance is initialized.
+		 *
+		 * @export
+		 * @memberof EngineConfig
+		 * @default
+		 * @type {boolean}
+		 */
+		unloadAfterInit: true,
+		/**
+		 * The HTML DOM Canvas object to use.
+		 *
+		 * By default, the first canvas element in the document will be used is none is specified.
+		 *
+		 * @export
+		 * @memberof EngineConfig
+		 * @default
+		 * @type {?HTMLCanvasElement}
+		 */
+		canvas: null,
+		/**
+		 * The name of the WASM file without the extension. (Set by Godot Editor export process).
+		 *
+		 * @export
+		 * @memberof EngineConfig
+		 * @default
+		 * @type {string}
+		 */
+		executable: '',
+		/**
+		 * An alternative name for the game pck to load. The executable name is used otherwise.
+		 *
+		 * @export
+		 * @memberof EngineConfig
+		 * @default
+		 * @type {?string}
+		 */
+		mainPack: null,
+		/**
+		 * Specify a language code to select the proper localization for the game.
+		 *
+		 * The browser locale will be used if none is specified. See complete list of
+		 * :ref:`supported locales <doc_locales>`.
+		 *
+		 * @export
+		 * @memberof EngineConfig
+		 * @type {?string}
+		 * @default
+		 */
+		locale: null,
+		/**
+		 * The canvas resize policy determines how the canvas should be resized by Godot.
+		 *
+		 * ``0`` means Godot won't do any resizing. This is useful if you want to control the canvas size from
+		 * JavaScript code in your template.
+		 *
+		 * ``1`` means Godot will resize the canvas on start, and when changing window size via engine functions.
+		 *
+		 * ``2`` means Godot will adapt the canvas size to match the whole browser window.
+		 *
+		 * @export
+		 * @memberof EngineConfig
+		 * @type {number}
+		 * @default
+		 */
+		canvasResizePolicy: 2,
+		/**
+		 * The arguments to be passed as command line arguments on startup.
+		 *
+		 * See :ref:`command line tutorial <doc_command_line_tutorial>`.
+		 *
+		 * **Note**: :js:meth:`startGame <Engine.prototype.startGame>` will always add the ``--main-pack`` argument.
+		 *
+		 * @export
+		 * @memberof EngineConfig
+		 * @type {!Array<string>}
+		 * @default
+		 */
+		args: [],
+		/**
+		 * When enabled, the game canvas will automatically grab the focus when the engine starts.
+		 *
+		 * @export
+		 * @memberof EngineConfig
+		 * @type {boolean}
+		 * @default
+		 */
+		focusCanvas: true,
+		/**
+		 * When enabled, this will turn on experimental virtual keyboard support on mobile.
+		 *
+		 * @export
+		 * @memberof EngineConfig
+		 * @type {boolean}
+		 * @default
+		 */
+		experimentalVK: false,
+		/**
+		 * The progressive web app service worker to install.
+		 *
+		 * @export
+		 * @memberof EngineConfig
+		 * @default
+		 * @type {string}
+		 */
+		serviceWorker: '',
+		/**
+		 * @ignore
+		 * @export
+		 * @type {!Array<string>}
+		 */
+		persistentPaths: ['/userfs'],
+		/**
+		 * @ignore
+		 * @export
+		 * @type {!Array<string>}
+		 */
+		gdextensionLibs: [],
+		/**
+		 * @ignore
+		 * @export
+		 * @type {!Object<string, number>}
+		 */
+		fileSizes: {},
+		/**
+		 * @ignore
+		 * @export
+		 * @type {number}
+		 */
+		emscriptenPoolSize: 8,
+		/**
+		 * @ignore
+		 * @export
+		 * @type {number}
+		 */
+		godotPoolSize: 4,
+		/**
+		 * A MessagePort used to send debug messages when using protocol messageport://
+		 * @export
+		 * @memberof EngineConfig
+		 * @default
+		 * @type {?MessagePort}
+		 */
+		debugPort: null,
+		/**
+		 * The Process ID assigned to this instance (useful for debugging).
+		 * @memberof EngineConfig
+		 * @export
+		 * @default
+		 * @type {number}
+		 */
+		pid: 0,
+		/**
+		 * A callback function for handling Godot's ``OS.execute`` calls.
+		 *
+		 * This is for example used in the Web Editor template to switch between Project Manager and editor, and for running the game.
+		 *
+		 * @callback EngineConfig.onExecute
+		 * @param {string} path The path that Godot's wants executed.
+		 * @param {!Array<string>} args The arguments of the "command" to execute.
+		 */
+		/**
+		 * @ignore
+		 * @export
+		 * @type {?function(string, !Array<string>):?number}
+		 */
+		onExecute: null,
+		/**
+		 * A callback function for handling Godot's ``OS.kill`` calls.
+		 *
+		 * This is for example used in the Web Editor template to forcefully terminate a running game instance.
+		 *
+		 * @callback EngineConfig.onTerminatePID
+		 * @param {number} pid The Process ID to terminate.
+		 */
+		/**
+		 * @ignore
+		 * @export
+		 * @type {?function(number)}
+		 */
+		onTerminatePID: null,
+		/**
+		 * A callback function for being notified when the Godot instance quits.
+		 *
+		 * **Note**: This function will not be called if the engine crashes or become unresponsive.
+		 *
+		 * @callback EngineConfig.onExit
+		 * @param {number} status_code The status code returned by Godot on exit.
+		 */
+		/**
+		 * @ignore
+		 * @export
+		 * @type {?function(number)}
+		 */
+		onExit: null,
+		/**
+		 * A callback function for displaying download progress.
+		 *
+		 * The function is called once per frame while downloading files, so the usage of ``requestAnimationFrame()``
+		 * is not necessary.
+		 *
+		 * If the callback function receives a total amount of bytes as 0, this means that it is impossible to calculate.
+		 * Possible reasons include:
+		 *
+		 * -  Files are delivered with server-side chunked compression
+		 * -  Files are delivered with server-side compression on Chromium
+		 * -  Not all file downloads have started yet (usually on servers without multi-threading)
+		 *
+		 * @callback EngineConfig.onProgress
+		 * @param {number} current The current amount of downloaded bytes so far.
+		 * @param {number} total The total amount of bytes to be downloaded.
+		 */
+		/**
+		 * @ignore
+		 * @export
+		 * @type {?function(number, number)}
+		 */
+		onProgress: null,
+		/**
+		 * A callback function for handling the standard output stream. This method should usually only be used in debug pages.
+		 *
+		 * By default, ``console.log()`` is used.
+		 *
+		 * @callback EngineConfig.onPrint
+		 * @param {...*} [var_args] A variadic number of arguments to be printed.
+		 */
+		/**
+		 * @ignore
+		 * @export
+		 * @type {?function(...*)}
+		 */
+		onPrint: function () {
+			console.log.apply(console, Array.from(arguments)); // eslint-disable-line no-console
+		},
+		/**
+		 * A callback function for handling the standard error stream. This method should usually only be used in debug pages.
+		 *
+		 * By default, ``console.error()`` is used.
+		 *
+		 * @callback EngineConfig.onPrintError
+		 * @param {...*} [var_args] A variadic number of arguments to be printed as errors.
+		*/
+		/**
+		 * @ignore
+		 * @export
+		 * @type {?function(...*)}
+		 */
+		onPrintError: function (var_args) {
+			console.error.apply(console, Array.from(arguments)); // eslint-disable-line no-console
+		},
+	};
+
+	/**
+	 * @ignore
+	 * @constructor
+	 * @struct
+	 * @param {?EngineConfig} opts
+	 */
+	function Config(opts) {
+		this.update(opts);
+	}
+
+	Config.prototype = cfg;
+
+	/**
+	 * @ignore
+	 * @param {?EngineConfig} opts
+	 */
+	Config.prototype.update = function (opts) {
+		const config = opts || {};
+		const me = this;
+		Object.keys(cfg).forEach((key) => {
+			/**
+			 * @ignore
+			 * @suppress {checkTypes}
+			 */
+			me[key] = typeof (config[key]) === 'undefined' ? me[key] : config[key];
+		});
+	};
+
+	/**
+	 * @ignore
+	 * @param {string} loadPath
+	 * @param {!Response} response
+	 * @return {!Object}
+	 */
+	Config.prototype.getModuleConfig = function (loadPath, response) {
+		let r = response;
+		const gdext = this.gdextensionLibs;
+		return {
+			'print': this.onPrint,
+			'printErr': this.onPrintError,
+			'thisProgram': this.executable,
+			'noExitRuntime': false,
+			'dynamicLibraries': [`${loadPath}.side.wasm`].concat(this.gdextensionLibs),
+			'emscriptenPoolSize': this.emscriptenPoolSize,
+			'instantiateWasm': function (imports, onSuccess) {
+				function done(result) {
+					onSuccess(result['instance'], result['module']);
+				}
+				if (typeof (WebAssembly.instantiateStreaming) !== 'undefined') {
+					WebAssembly.instantiateStreaming(Promise.resolve(r), imports).then(done);
+				} else {
+					r.arrayBuffer().then(function (buffer) {
+						WebAssembly.instantiate(buffer, imports).then(done);
+					});
+				}
+				r = null;
+				return {};
+			},
+			'locateFile': function (path) {
+				if (!path.startsWith('godot.')) {
+					return path;
+				} else if (path.endsWith('.audio.worklet.js')) {
+					return `${loadPath}.audio.worklet.js`;
+				} else if (path.endsWith('.audio.position.worklet.js')) {
+					return `${loadPath}.audio.position.worklet.js`;
+				} else if (path.endsWith('.js')) {
+					return `${loadPath}.js`;
+				} else if (path in gdext) {
+					return path;
+				} else if (path.endsWith('.side.wasm')) {
+					return `${loadPath}.side.wasm`;
+				} else if (path.endsWith('.wasm')) {
+					return `${loadPath}.wasm`;
+				}
+				return path;
+			},
+		};
+	};
+
+	/**
+	 * @ignore
+	 * @param {function()} cleanup
+	 * @return {!Object}
+	 */
+	Config.prototype.getGodotConfig = function (cleanup) {
+		// Try to find a canvas
+		if (!(this.canvas instanceof HTMLCanvasElement)) {
+			const nodes = document.getElementsByTagName('canvas');
+			if (nodes.length && nodes[0] instanceof HTMLCanvasElement) {
+				const first = nodes[0];
+				this.canvas = /** @type {!HTMLCanvasElement} */ (first);
+			}
+			if (!this.canvas) {
+				throw new Error('No canvas found in page');
+			}
+		}
+		// Canvas can grab focus on click, or key events won't work.
+		if (this.canvas.tabIndex < 0) {
+			this.canvas.tabIndex = 0;
+		}
+
+		// Browser locale, or custom one if defined.
+		let locale = this.locale;
+		if (!locale) {
+			locale = navigator.languages ? navigator.languages[0] : navigator.language;
+			locale = locale.split('.')[0];
+		}
+		locale = locale.replace('-', '_');
+		const onExit = this.onExit;
+
+		// Godot configuration.
+		return {
+			'pid': this.pid,
+			'canvas': this.canvas,
+			'canvasResizePolicy': this.canvasResizePolicy,
+			'locale': locale,
+			'virtualKeyboard': this.experimentalVK,
+			'godotPoolSize': this.godotPoolSize,
+			'focusCanvas': this.focusCanvas,
+			'debugPort': this.debugPort,
+			'onExecute': this.onExecute,
+			'onTerminatePID': this.onTerminatePID,
+			'onExit': function (p_code) {
+				cleanup(); // We always need to call the cleanup callback to free memory.
+				if (typeof (onExit) === 'function') {
+					onExit(p_code);
+				}
+			},
+		};
+	};
+	return new Config(initConfig);
+};

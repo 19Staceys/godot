@@ -1,217 +1,325 @@
+/**************************************************************************/
+/*  file_access_encrypted.cpp                                             */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
+
 #include "file_access_encrypted.h"
-#include "aes256.h"
-#include "md5.h"
-#include "os/copymem.h"
-#define COMP_MAGIC 0x43454447
 
+#include "core/variant/variant.h"
 
-Error FileAccessEncrypted::open_and_parse(FileAccess *p_base,const Vector<uint8_t>& p_key,Mode p_mode) {
+Error FileAccessEncrypted::open_and_parse(Ref<FileAccess> p_base, const Vector<uint8_t> &p_key, Mode p_mode, bool p_with_magic, const Vector<uint8_t> &p_iv) {
+	ERR_FAIL_COND_V_MSG(file.is_valid(), ERR_ALREADY_IN_USE, vformat("Can't open file while another file from path '%s' is open.", file->get_path_absolute()));
+	ERR_FAIL_COND_V(p_key.size() != 32, ERR_INVALID_PARAMETER);
 
-	ERR_FAIL_COND_V(file!=NULL,ERR_ALREADY_IN_USE);
+	pos = 0;
+	eofed = false;
+	use_magic = p_with_magic;
 
-	if (p_mode==MODE_WRITE_AES256) {
-
-		ERR_FAIL_COND_V(p_key.size()!=32,ERR_INVALID_PARAMETER);
+	if (p_mode == MODE_WRITE_AES256) {
 		data.clear();
-		writing=true;
-		file=p_base;
-		mode=p_mode;
-		key=p_key;
+		writing = true;
+		file = p_base;
+		key = p_key;
+		if (p_iv.is_empty()) {
+			iv.resize(16);
+			Error err = CryptoCore::generate_random(iv.ptrw(), 16);
+			ERR_FAIL_COND_V(err != OK, err);
+		} else {
+			ERR_FAIL_COND_V(p_iv.size() != 16, ERR_INVALID_PARAMETER);
+			iv = p_iv;
+		}
 
+	} else if (p_mode == MODE_READ) {
+		writing = false;
+		key = p_key;
+
+		if (use_magic) {
+			uint32_t magic = p_base->get_32();
+			ERR_FAIL_COND_V(magic != ENCRYPTED_HEADER_MAGIC, ERR_FILE_UNRECOGNIZED);
+		}
+
+		unsigned char md5d[16];
+		p_base->get_buffer(md5d, 16);
+		length = p_base->get_64();
+
+		iv.resize(16);
+		p_base->get_buffer(iv.ptrw(), 16);
+
+		base = p_base->get_position();
+		ERR_FAIL_COND_V(p_base->get_length() < base + length, ERR_FILE_CORRUPT);
+		uint64_t ds = length;
+		if (ds % 16) {
+			ds += 16 - (ds % 16);
+		}
+		data.resize(ds);
+
+		uint64_t blen = p_base->get_buffer(data.ptrw(), ds);
+		ERR_FAIL_COND_V(blen != ds, ERR_FILE_CORRUPT);
+
+		CryptoCore::decrypt_cfb(data.ptrw(), data.ptrw(), ds, key.ptrw(), key.size(), iv.ptrw());
+		data.resize(length);
+
+		unsigned char hash[16];
+		ERR_FAIL_COND_V(CryptoCore::md5(data.ptr(), data.size(), hash) != OK, ERR_BUG);
+
+		ERR_FAIL_COND_V_MSG(String::md5(hash) != String::md5(md5d), ERR_FILE_CORRUPT, "The MD5 sum of the decrypted file does not match the expected value. It could be that the file is corrupt, or that the provided decryption key is invalid.");
+
+		file = p_base;
 	}
 
 	return OK;
 }
 
-Error FileAccessEncrypted::open_and_parse_password(FileAccess *p_base,const String& p_key,Mode p_mode){
-
-
+Error FileAccessEncrypted::open_and_parse_password(Ref<FileAccess> p_base, const String &p_key, Mode p_mode) {
 	String cs = p_key.md5_text();
-	ERR_FAIL_COND_V(cs.length()!=32,ERR_INVALID_PARAMETER);
-	Vector<uint8_t> key;
-	key.resize(32);
-	for(int i=0;i<32;i++) {
-
-		key[i]=cs[i];
+	ERR_FAIL_COND_V(cs.length() != 32, ERR_INVALID_PARAMETER);
+	Vector<uint8_t> key_md5;
+	key_md5.resize(32);
+	for (int i = 0; i < 32; i++) {
+		key_md5.write[i] = cs[i];
 	}
 
-	return open_and_parse(p_base,key,p_mode);
+	return open_and_parse(p_base, key_md5, p_mode);
 }
 
-
-
-Error FileAccessEncrypted::_open(const String& p_path, int p_mode_flags) {
-
+Error FileAccessEncrypted::open_internal(const String &p_path, int p_mode_flags) {
 	return OK;
 }
-void FileAccessEncrypted::close() {
 
-	if (!file)
+void FileAccessEncrypted::_close() {
+	if (file.is_null()) {
 		return;
+	}
 
 	if (writing) {
-
-		Vector<uint8_t> compressed;
-		size_t len = data.size();
+		LocalVector<uint8_t> compressed;
+		uint64_t len = data.size();
 		if (len % 16) {
-			len+=16-(len % 16);
+			len += 16 - (len % 16);
 		}
+
+		unsigned char hash[16];
+		ERR_FAIL_COND(CryptoCore::md5(data.ptr(), data.size(), hash) != OK); // Bug?
 
 		compressed.resize(len);
-		zeromem( compressed.ptr(), len );
-		for(int i=0;i<data.size();i++) {
-			compressed[i]=data[i];
+		memcpy(compressed.ptr(), data.ptr(), data.size());
+		memset(compressed.ptr() + data.size(), 0, len - data.size());
+		Error err = CryptoCore::encrypt_cfb(compressed.ptr(), compressed.ptr(), len, key.ptr(), key.size(), iv.ptr());
+		ERR_FAIL_COND_MSG(err, "Error encrypting file data: " + itos(err));
+
+		if (use_magic) {
+			file->store_32(ENCRYPTED_HEADER_MAGIC);
 		}
 
-		aes256_context ctx;
-		aes256_init(&ctx,key.ptr());
-
-		for(size_t i=0;i<len;i+=16) {
-
-			aes256_encrypt_ecb(&ctx,&compressed[i]);
-		}
-
-		aes256_done(&ctx);
-
-		file->store_32(COMP_MAGIC);
-		file->store_32(mode);
-
-		MD5_CTX md5;
-		MD5Init(&md5);
-		MD5Update(&md5,compressed.ptr(),compressed.size());
-		MD5Final(&md5);
-
-		file->store_buffer(md5.digest,16);
+		file->store_buffer(hash, 16);
 		file->store_64(data.size());
+		file->store_buffer(iv.ptr(), 16);
 
-		file->store_buffer(compressed.ptr(),compressed.size());
-		file->close();
-		memdelete(file);
-		file=NULL;
-
+		file->store_buffer(compressed.ptr(), compressed.size());
+		data.clear();
 	}
 
+	file.unref();
 }
 
-bool FileAccessEncrypted::is_open() const{
-
-	return file!=NULL;
+bool FileAccessEncrypted::is_open() const {
+	return file.is_valid();
 }
 
-void FileAccessEncrypted::seek(size_t p_position){
-
-	if (writing) {
-		if (p_position > (size_t)data.size())
-			p_position=data.size();
-
-		pos=p_position;
+String FileAccessEncrypted::get_path() const {
+	if (file.is_valid()) {
+		return file->get_path();
+	} else {
+		return "";
 	}
 }
 
-
-void FileAccessEncrypted::seek_end(int64_t p_position){
-
-	seek( data.size() + p_position );
+String FileAccessEncrypted::get_path_absolute() const {
+	if (file.is_valid()) {
+		return file->get_path_absolute();
+	} else {
+		return "";
+	}
 }
-size_t FileAccessEncrypted::get_pos() const{
 
+void FileAccessEncrypted::seek(uint64_t p_position) {
+	if (p_position > get_length()) {
+		p_position = get_length();
+	}
+
+	pos = p_position;
+	eofed = false;
+}
+
+void FileAccessEncrypted::seek_end(int64_t p_position) {
+	seek(get_length() + p_position);
+}
+
+uint64_t FileAccessEncrypted::get_position() const {
 	return pos;
-	return 0;
-}
-size_t FileAccessEncrypted::get_len() const{
-
-	if (writing)
-		return data.size();
-	return 0;
 }
 
-bool FileAccessEncrypted::eof_reached() const{
+uint64_t FileAccessEncrypted::get_length() const {
+	return data.size();
+}
 
-	if (!writing) {
+bool FileAccessEncrypted::eof_reached() const {
+	return eofed;
+}
 
+uint64_t FileAccessEncrypted::get_buffer(uint8_t *p_dst, uint64_t p_length) const {
+	ERR_FAIL_COND_V_MSG(writing, -1, "File has not been opened in read mode.");
 
+	if (!p_length) {
+		return 0;
 	}
 
-	return false;
-}
+	ERR_FAIL_NULL_V(p_dst, -1);
 
-uint8_t FileAccessEncrypted::get_8() const{
+	uint64_t to_copy = MIN(p_length, get_length() - pos);
 
-	return 0;
-}
-int FileAccessEncrypted::get_buffer(uint8_t *p_dst, int p_length) const{
+	memcpy(p_dst, data.ptr() + pos, to_copy);
+	pos += to_copy;
 
-
-	return 0;
-}
-
-Error FileAccessEncrypted::get_error() const{
-
-	return OK;
-}
-
-void FileAccessEncrypted::store_buffer(const uint8_t *p_src,int p_length) {
-
-	ERR_FAIL_COND(!writing);
-
-	if (pos<data.size()) {
-
-		for(int i=0;i<p_length;i++) {
-
-			store_8(p_src[i]);
-		}
-	} else if (pos==data.size()) {
-
-		data.resize(pos+p_length);
-		for(int i=0;i<p_length;i++) {
-
-			data[pos+i]=p_src[i];
-		}
-		pos+=p_length;
+	if (to_copy < p_length) {
+		eofed = true;
 	}
+
+	return to_copy;
 }
 
+Error FileAccessEncrypted::get_error() const {
+	return eofed ? ERR_FILE_EOF : OK;
+}
 
-void FileAccessEncrypted::store_8(uint8_t p_dest){
+bool FileAccessEncrypted::store_buffer(const uint8_t *p_src, uint64_t p_length) {
+	ERR_FAIL_COND_V_MSG(!writing, false, "File has not been opened in write mode.");
 
-	ERR_FAIL_COND(!writing);
-
-	if (pos<data.size()) {
-		data[pos]=p_dest;
-		pos++;
-	} else if (pos==data.size()){
-		data.push_back(p_dest);
-		pos++;
+	if (!p_length) {
+		return true;
 	}
-}
 
-bool FileAccessEncrypted::file_exists(const String& p_name){
+	ERR_FAIL_NULL_V(p_src, false);
 
-	FileAccess *fa = FileAccess::open(p_name,FileAccess::READ);
-	if (!fa)
-		return false;
-	memdelete(fa);
+	if (pos + p_length >= get_length()) {
+		ERR_FAIL_COND_V(data.resize(pos + p_length) != OK, false);
+	}
+
+	memcpy(data.ptrw() + pos, p_src, p_length);
+	pos += p_length;
+
 	return true;
 }
 
-uint64_t FileAccessEncrypted::_get_modified_time(const String& p_file){
+void FileAccessEncrypted::flush() {
+	ERR_FAIL_COND_MSG(!writing, "File has not been opened in write mode.");
 
+	// encrypted files keep data in memory till close()
+}
 
+bool FileAccessEncrypted::file_exists(const String &p_name) {
+	Ref<FileAccess> fa = FileAccess::open(p_name, FileAccess::READ);
+	if (fa.is_null()) {
+		return false;
+	}
+	return true;
+}
+
+uint64_t FileAccessEncrypted::_get_modified_time(const String &p_file) {
+	if (file.is_valid()) {
+		return file->get_modified_time(p_file);
+	} else {
+		return 0;
+	}
+}
+
+uint64_t FileAccessEncrypted::_get_access_time(const String &p_file) {
+	if (file.is_valid()) {
+		return file->get_access_time(p_file);
+	} else {
+		return 0;
+	}
+}
+
+int64_t FileAccessEncrypted::_get_size(const String &p_file) {
+	if (file.is_valid()) {
+		return file->get_size(p_file);
+	} else {
+		return -1;
+	}
+}
+
+BitField<FileAccess::UnixPermissionFlags> FileAccessEncrypted::_get_unix_permissions(const String &p_file) {
+	if (file.is_valid()) {
+		return file->_get_unix_permissions(p_file);
+	}
 	return 0;
 }
 
-FileAccessEncrypted::FileAccessEncrypted() {
-
-	file=NULL;
+Error FileAccessEncrypted::_set_unix_permissions(const String &p_file, BitField<FileAccess::UnixPermissionFlags> p_permissions) {
+	if (file.is_valid()) {
+		return file->_set_unix_permissions(p_file, p_permissions);
+	}
+	return FAILED;
 }
 
+bool FileAccessEncrypted::_get_hidden_attribute(const String &p_file) {
+	if (file.is_valid()) {
+		return file->_get_hidden_attribute(p_file);
+	}
+	return false;
+}
+
+Error FileAccessEncrypted::_set_hidden_attribute(const String &p_file, bool p_hidden) {
+	if (file.is_valid()) {
+		return file->_set_hidden_attribute(p_file, p_hidden);
+	}
+	return FAILED;
+}
+
+bool FileAccessEncrypted::_get_read_only_attribute(const String &p_file) {
+	if (file.is_valid()) {
+		return file->_get_read_only_attribute(p_file);
+	}
+	return false;
+}
+
+Error FileAccessEncrypted::_set_read_only_attribute(const String &p_file, bool p_ro) {
+	if (file.is_valid()) {
+		return file->_set_read_only_attribute(p_file, p_ro);
+	}
+	return FAILED;
+}
+
+void FileAccessEncrypted::close() {
+	_close();
+}
 
 FileAccessEncrypted::~FileAccessEncrypted() {
-
-	if (file)
-		close();
-
-	if (file) {
-		memdelete(file);
-	}
+	_close();
 }

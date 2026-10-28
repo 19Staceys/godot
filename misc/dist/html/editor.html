@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no">
+		<meta name="author" content="Godot Engine">
+		<meta name="description" content="Use the Godot Engine editor directly in your web browser, without having to install anything.">
+		<meta name="mobile-web-app-capable" content="yes">
+		<meta name="apple-mobile-web-app-capable" content="yes">
+		<meta name="application-name" content="Godot">
+		<meta name="apple-mobile-web-app-title" content="Godot">
+		<meta name="theme-color" content="#202531">
+		<meta name="msapplication-navbutton-color" content="#202531">
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+		<meta name="msapplication-starturl" content="/latest">
+		<meta property="og:site_name" content="Godot Engine Web Editor">
+		<meta property="og:url" name="twitter:url" content="https://editor.godotengine.org/releases/stable/">
+		<meta property="og:title" name="twitter:title" content="Free and open source 2D and 3D game engine">
+		<meta property="og:description" name="twitter:description" content="Use the Godot Engine editor directly in your web browser, without having to install anything.">
+		<meta property="og:image" name="twitter:image" content="https://godotengine.org/assets/share-image.webp">
+		<meta property="og:type" content="website">
+		<meta name="twitter:card" content="summary">
+		<link id="-gd-engine-icon" rel="icon" type="image/png" href="favicon.png">
+		<link rel="apple-touch-icon" type="image/png" href="favicon.png">
+		<link rel="manifest" href="manifest.json">
+		<link rel="preload" href="inter-regular.woff2" as="font" crossorigin="anonymous">
+		<link rel="preload" href="inter-bold.woff2" as="font" crossorigin="anonymous">
+		<title>Godot Engine Web Editor (___GODOT_VERSION___)</title>
+		<style id="web-editor-style">
+/* Use Inter in the same configuration as used in the editor (e.g. alternate lowercase `l`). */
+@font-face {
+	font-family: "Inter";
+	src: url("inter-regular.woff2");
+	font-weight: 400;
+	font-style: normal;
+	font-display: swap;
+}
+
+@font-face {
+	font-family: "Inter";
+	src: url("inter-bold.woff2");
+	font-weight: 700;
+	font-style: normal;
+	font-display: swap;
+}
+
+html,
+body,
+button,
+input {
+	/* Apply a modern sans-serif font stack in case the Inter font fails to load. */
+	font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+	font-size: 14px;
+	font-feature-settings: "calt" 0, "ss04" 1, "tnum" 1;
+}
+
+*:focus-visible {
+	/* More visible outline for better keyboard navigation. */
+	outline: 0.1875rem solid #538dda;
+	/* Make the outline always appear above other elements. */
+	/* Otherwise, one of its sides can be hidden by tabs in the Download and More layouts. */
+	position: relative;
+}
+
+body {
+	touch-action: none;
+	margin: 0;
+	border: 0 none;
+	padding: 0;
+	font-size: 14px;
+	text-align: center;
+	background-color: #262626;
+	overflow: hidden;
+}
+
+iframe {
+	margin: 0;
+	border: none;
+	padding: 0;
+	background-color: #262626;
+	overflow: hidden;
+}
+
+h2 {
+	font-size: 21px;
+}
+
+a {
+	color: hsl(205, 100%, 75%);
+	text-decoration-color: hsla(205, 100%, 75%, 0.3);
+	text-decoration-thickness: 0.125rem;
+}
+
+a:hover {
+	filter: brightness(117.5%);
+}
+
+a:active {
+	filter: brightness(82.5%);
+}
+
+.welcome-modal {
+	display: none;
+	position: fixed;
+	z-index: 1;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 100%;
+	overflow: auto;
+	background-color: hsla(0, 0%, 0%, 0.5);
+	text-align: left;
+}
+
+.welcome-modal-title {
+	text-align: center;
+}
+
+.welcome-modal-content {
+	background-color: #262626;
+	box-shadow: 0 0.25rem 0.25rem hsla(0, 0%, 0%, 0.5);
+	line-height: 1.5;
+	max-width: 38rem;
+	margin: 4rem auto 0 auto;
+	color: white;
+	border-radius: 0.5rem;
+	padding: 0.125rem 1.25rem 1.25rem 1.25rem;
+}
+
+#tabs-buttons {
+	/* Remove spacing between items. */
+	font-size: 0;
+
+	/* Match the default background color of the editor window for a seamless appearance. */
+	background-color: #141414;
+}
+
+#tab-game {
+	/* Match the default background color of the editor window for a seamless appearance. */
+	background-color: #141414;
+	/* Make the background span the entire page height. */
+	min-height: 100vh;
+}
+
+/* Don't show distracting focus outlines for the main tabs' contents. */
+.godot {
+	outline: none;
+	color: #d0d0d0;
+	background-color: #1b1b1b;
+	background-image: linear-gradient(to bottom, #403e48, #35333c);
+	border: 1px solid #484848;
+	box-shadow: 0 0 1px 1px #141414;
+}
+
+#tab-status {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+}
+
+#tab-editor iframe:focus-visible,
+#tab-game iframe:focus-visible,
+#godot-canvas:focus-visible {
+	outline: none;
+	border: none;
+	box-shadow: none;
+}
+
+.btn {
+	appearance: none;
+	color: #d0d0d0;
+	background-color: #424242;
+	border: 1px solid #484848;
+	/* Vertically center button text. */
+	padding: 0.4375rem 0.5625rem 0.5rem;
+	margin: 0 0.5rem;
+	border-radius: 0.25rem;
+}
+
+.btn:not(:disabled):hover {
+	color: #e4e4e4;
+	background-color: #4d4d4d;
+	border-color: #535353;
+}
+
+.btn:active {
+	color: #e5e5e5;
+	background-color: #505050;
+	border-color: #565656;
+}
+
+.btn:disabled {
+	color: #7f7f7f;
+	background-color: #3a3a3a;
+	border-color: #3a3a3a;
+}
+
+.btn.tab-btn,
+.btn.close-btn {
+	/* Match tab colors from the default editor theme. */
+	background-color: transparent;
+	border-color: transparent;
+}
+
+.btn.tab-btn:not(:disabled):hover,
+.btn.close-btn:not(:disabled):hover {
+	background-color: #212121;
+	border-color: #212121;
+}
+
+.btn.tab-btn {
+	/* Round top corners only. */
+	border-radius: 0.25rem 0.25rem 0 0;
+}
+
+.btn.next-to-close-btn {
+	/* Round top-left corner only. */
+	border-radius: 0.25rem 0 0 0;
+}
+
+.btn.close-btn {
+	/* Round top-right corner only. */
+	border-radius: 0 0.25rem 0 0;
+	margin-left: -0.75rem;
+	font-weight: 700;
+}
+
+/* Status display */
+
+#status-progress {
+	width: 366px;
+	height: 7px;
+	background-color: #38363A;
+	border: 1px solid #444246;
+	padding: 1px;
+	box-shadow: 0 0 2px 1px #1B1C22;
+	border-radius: 2px;
+	visibility: visible;
+}
+
+@media only screen and (orientation:portrait) {
+	#status-progress {
+		width: 61.8%;
+	}
+}
+
+#status-progress-inner {
+	height: 100%;
+	width: 0;
+	box-sizing: border-box;
+	transition: width 0.5s linear;
+	background-color: #478cbf;
+	border: 1px solid #222223;
+	box-shadow: 0 0 1px 1px #27282E;
+	border-radius: 3px;
+}
+
+#status-indeterminate {
+	visibility: visible;
+	position: relative;
+}
+
+#status-indeterminate > div {
+	width: 4.5px;
+	height: 0;
+	border-style: solid;
+	border-width: 9px 3px 0 3px;
+	border-color: #2b2b2b transparent transparent transparent;
+	transform-origin: center 21px;
+	position: absolute;
+}
+
+#status-indeterminate > div:nth-child(1) { transform: rotate( 22.5deg); }
+#status-indeterminate > div:nth-child(2) { transform: rotate( 67.5deg); }
+#status-indeterminate > div:nth-child(3) { transform: rotate(112.5deg); }
+#status-indeterminate > div:nth-child(4) { transform: rotate(157.5deg); }
+#status-indeterminate > div:nth-child(5) { transform: rotate(202.5deg); }
+#status-indeterminate > div:nth-child(6) { transform: rotate(247.5deg); }
+#status-indeterminate > div:nth-child(7) { transform: rotate(292.5deg); }
+#status-indeterminate > div:nth-child(8) { transform: rotate(337.5deg); }
+
+#status-notice {
+	margin: 0 100px;
+	line-height: 1.3;
+	visibility: visible;
+	padding: 4px 6px;
+}
+		</style>
+	</head>
+	<body>
+		<div
+			id="welcome-modal"
+			class="welcome-modal"
+			role="dialog"
+			aria-labelledby="welcome-modal-title"
+			aria-describedby="welcome-modal-description"
+			onclick="if (event.target === this) closeWelcomeModal()"
+		>
+			<div class="welcome-modal-content">
+				<h2 id="welcome-modal-title" class="welcome-modal-title">Important - Please read before continuing</h2>
+				<div id="welcome-modal-description">
+					<p>
+						The Godot Web Editor has some limitations compared to the native version.<br>
+						Its main focus is education and experimentation;
+						<strong>it is not recommended for production</strong>.
+					</p>
+					<p>
+						For a more optimal experience, <a
+							href="https://godotengine.org/download/"
+							target="_blank"
+							rel="noopener"
+						>download</a> the native Godot Editor.
+					</p>
+					<p>
+						Refer to the
+						<a
+							href="https://docs.godotengine.org/en/stable/tutorials/editor/using_the_web_editor.html"
+							target="_blank"
+							rel="noopener"
+						>Web editor documentation</a> for usage instructions and limitations.
+					</p>
+				</div>
+				<div id="welcome-modal-missing-description" style="display: none">
+					<p>
+						<strong>The following features required by the Godot Web Editor are missing:</strong>
+					</p>
+					<ul id="welcome-modal-missing-list">
+					</ul>
+					<p>
+						If you are self-hosting the web editor, refer to
+						<a
+							href="https://docs.godotengine.org/en/stable/tutorials/export/exporting_for_web.html"
+							target="_blank"
+							rel="noopener"
+						>Exporting for the Web</a> for more information.
+					</p>
+				</div>
+				<div style="text-align: center;">
+					<label>
+						<input id="welcome-modal-dont-show-again-check" type="checkbox">
+						Don't Show Again
+					</label>
+				</div>
+				<div style="text-align: center">
+					<button id="welcome-modal-dismiss" class="btn" type="button" onclick="closeWelcomeModal()" style="margin-top: 1rem">
+						OK
+					</button>
+				</div>
+			</div>
+		</div>
+		<div id="tabs-buttons">
+			<button id="btn-tab-editor" class="btn tab-btn next-to-close-btn" disabled="disabled">Editor</button>
+			<button id="btn-close-editor" class="btn close-btn" disabled="disabled">×</button>
+			<button id="btn-tab-game" class="btn tab-btn next-to-close-btn" disabled="disabled">Game</button>
+			<button id="btn-close-game" class="btn close-btn" disabled="disabled">×</button>
+			<button id="btn-tab-update" class="btn tab-btn" style="display: none;">Update</button>
+		</div>
+		<div id="tabs">
+			<div id="tab-loader">
+				<div style="color: #e0e0e0;" id="persistence">
+					<br>
+					<img src="logo.svg" alt="Godot Engine logo" width="1024" height="414" style="width: auto; height: auto; max-width: min(85%, 50vh); max-height: 200px">
+					<br>
+					___GODOT_VERSION___ - <a href="/releases/">Change version</a>
+					<br>
+					<br>
+					<button id="btn-start-editor" class="btn" style="margin-top: 2rem; margin-bottom: 3rem; font-weight: 700">Start Godot Editor</button>
+					<br>
+					<button class="btn" onclick="clearPersistence()" style="margin-bottom: 1.5rem">Clear Persistent Data</button>
+					<br>
+					<a href="https://docs.godotengine.org/en/stable/tutorials/editor/using_the_web_editor.html">Web editor documentation</a>
+				</div>
+			</div>
+			<div id="tab-editor" style="display: none;">
+				<iframe id="editor-iframe" tabindex="1"></iframe>
+			</div>
+			<div id="tab-game" style="display: none;">
+				<iframe id="game-iframe" tabindex="2"></iframe>
+			</div>
+			<div id="tab-status" style="display: none;">
+				<div id="status-progress" style="display: none;" oncontextmenu="event.preventDefault();">
+					<div id="status-progress-inner"></div>
+				</div>
+				<div id="status-indeterminate" style="display: none;" oncontextmenu="event.preventDefault();">
+					<div></div>
+					<div></div>
+					<div></div>
+					<div></div>
+					<div></div>
+					<div></div>
+					<div></div>
+					<div></div>
+				</div>
+				<div id="status-notice" class="godot" style="display: none;"></div>
+			</div>
+		</div>
+		<script>
+window.addEventListener('load', () => {
+	function notifyUpdate(sw) {
+		const btn = document.getElementById('btn-tab-update');
+		btn.onclick = function () {
+			if (!window.confirm('Are you sure you want to update?\nClicking "OK" will reload all active instances!')) {
+				return;
+			}
+			sw.postMessage('update');
+			btn.innerHTML = 'Updating...';
+			btn.disabled = true;
+		};
+		btn.style.display = '';
+	}
+	if ('serviceWorker' in navigator) {
+		try {
+			navigator.serviceWorker.register('service.worker.js').then(function (reg) {
+				if (reg.waiting) {
+					notifyUpdate(reg.waiting);
+				}
+				reg.addEventListener('updatefound', function () {
+					const update = reg.installing;
+					update.addEventListener('statechange', function () {
+						if (update.state === 'installed') {
+							// It's a new install, claim and perform aggressive caching.
+							if (!reg.active) {
+								update.postMessage('claim');
+							} else {
+								notifyUpdate(update);
+							}
+						}
+					});
+				});
+			});
+		} catch (e) {
+			console.error('Error while registering service worker:', e);
+		}
+	}
+
+	const missing = Engine.getMissingFeatures({
+		threads: ___GODOT_THREADS_ENABLED___,
+	});
+	if (missing.length) {
+		// Display error dialog as threading support is required for the editor.
+		document.getElementById('btn-start-editor').disabled = 'disabled';
+		document.getElementById('welcome-modal-description').style.display = 'none';
+		document.getElementById('welcome-modal-missing-description').style.display = 'block';
+		document.getElementById('welcome-modal-dismiss').style.display = 'none';
+		const list = document.getElementById('welcome-modal-missing-list');
+		for (let i = 0; i < missing.length; i++) {
+			const node = document.createElement('li');
+			node.innerText = missing[i];
+			list.appendChild(node);
+		}
+	}
+
+	if (missing.length || localStorage.getItem('welcomeModalDismissed') !== 'true') {
+		document.getElementById('welcome-modal').style.display = 'block';
+		document.getElementById('welcome-modal-dismiss').focus();
+	}
+});
+
+function closeWelcomeModal() { // eslint-disable-line no-unused-vars
+	document.getElementById('welcome-modal').style.display = 'none';
+	const dontShowAgain = document.getElementById('welcome-modal-dont-show-again-check').checked;
+	if (dontShowAgain) {
+		localStorage.setItem('welcomeModalDismissed', 'true');
+	}
+}
+		</script>
+		<script src="godot.editor.js"></script>
+		<script>
+const fileSizes = ___GODOT_EDITOR_FILESIZES___;
+
+function clearPersistence() { // eslint-disable-line no-unused-vars
+	function deleteDB(path) {
+		return new Promise(function (resolve, reject) {
+			const req = indexedDB.deleteDatabase(path);
+			req.onsuccess = function () {
+				resolve();
+			};
+			req.onerror = function (err) {
+				reject(err);
+			};
+			req.onblocked = function (err) {
+				reject(err);
+			};
+		});
+	}
+	if (!window.confirm('Are you sure you want to delete all the locally stored files?\nClicking "OK" will permanently remove your projects and editor settings!')) {
+		return;
+	}
+	Promise.all([
+		deleteDB('/home/web_user'),
+	]).then(function (results) {
+		localStorage.setItem('welcomeModalDismissed', 'false');
+		alert('Done.');
+	}).catch(function (err) {
+		alert('Error deleting local files. Please retry after reloading the page.');
+	});
+}
+
+function LoadStatus(document) {
+	const INDETERMINATE_STATUS_STEP_MS = 100;
+	const statusTab = document.getElementById('tab-status');
+	const statusProgress = document.getElementById('status-progress');
+	const statusProgressInner = document.getElementById('status-progress-inner');
+	const statusIndeterminate = document.getElementById('status-indeterminate');
+	const statusNotice = document.getElementById('status-notice');
+
+	let statusMode = 'hidden';
+
+	let animationCallbacks = [];
+
+	function animateStatusIndeterminate(ms) {
+		const i = Math.floor((ms / INDETERMINATE_STATUS_STEP_MS) % 8);
+		if (statusIndeterminate.children[i].style.borderTopColor === '') {
+			Array.prototype.slice.call(statusIndeterminate.children).forEach((child) => {
+				child.style.borderTopColor = '';
+			});
+			statusIndeterminate.children[i].style.borderTopColor = '#dfdfdf';
+		}
+	}
+
+	function setStatusMode(mode) {
+		if (statusMode === mode) {
+			return;
+		}
+		[statusProgress, statusIndeterminate, statusNotice].forEach((elem) => {
+			elem.style.display = 'none';
+		});
+		animationCallbacks = animationCallbacks.filter(function (value) {
+			return (value !== animateStatusIndeterminate);
+		});
+		let display = '';
+		switch (mode) {
+		case 'progress':
+			statusProgress.style.display = 'block';
+			break;
+		case 'indeterminate':
+			statusIndeterminate.style.display = 'block';
+			animationCallbacks.push(animateStatusIndeterminate);
+			break;
+		case 'notice':
+			statusNotice.style.display = 'block';
+			break;
+		case 'hidden':
+			display = 'none';
+			break;
+		default:
+			throw new Error('Invalid status mode');
+		}
+		statusTab.style.display = display;
+		statusMode = mode;
+	};
+
+	function setStatusNotice(text) {
+		while (statusNotice.lastChild) {
+			statusNotice.removeChild(statusNotice.lastChild);
+		}
+		const lines = text.split('\n');
+		lines.forEach((line) => {
+			statusNotice.appendChild(document.createTextNode(line));
+			statusNotice.appendChild(document.createElement('br'));
+		});
+	};
+
+	function updateProgress(active, progress) {
+		if (statusMode === 'notice') {
+			return;
+		}
+		if (active) {
+			setStatusMode('hidden');
+			return;
+		}
+		const [current, total] = progress;
+		if (total > 0 && current < total) {
+			statusProgressInner.style.width = `${(current / total) * 100}%`;
+			setStatusMode('progress');
+		} else {
+			setStatusMode('indeterminate');
+		}
+	}
+
+	function displayFailureNotice(err) {
+		console.error(err);
+		if (err instanceof Error) {
+			setStatusNotice(err.message);
+		} else if (typeof err === 'string') {
+			setStatusNotice(err);
+		} else {
+			setStatusNotice('An unknown error occurred.');
+		}
+		setStatusMode('notice');
+	}
+
+	setStatusMode('indeterminate');
+	let updating = false;
+	return {
+		update: (instance) => {
+			if (updating) {
+				return;
+			}
+			updating = true;
+			requestAnimationFrame(() => {
+				updating = false;
+				updateProgress(instance.active, instance.progress);
+			});
+		},
+		animate: (time) => {
+			animationCallbacks.forEach((callback) => callback(time));
+		},
+		setNotice: setStatusNotice,
+		setError: displayFailureNotice,
+	};
+};
+
+(function () {
+	// EngineIFrame initialization (+ custom state).
+	const iframeStyle = document.getElementById('web-editor-style');
+	const tabStatus = document.getElementById('tab-status');
+	const WrappedIFrame = (name) => {
+		let loadStatus = null;
+		const tab = document.getElementById(`tab-${name}`);
+		const iframeOnload = (iframe) => {
+			const title = iframe.contentDocument.getElementsByTagName('title')[0];
+			const observer = new MutationObserver(function () {
+				if (tab.style.display === 'none') {
+					return;
+				}
+				document.title = iframe.contentDocument.title;
+			});
+			observer.observe(title, { childList: true });
+			iframe.contentDocument.body.appendChild(iframe.contentDocument.importNode(iframeStyle, true));
+			iframe.contentDocument.body.appendChild(iframe.contentDocument.importNode(tabStatus, true));
+			loadStatus = new LoadStatus(iframe.contentDocument);
+		};
+		const state = new EngineIFrame('godot.editor', document.getElementById(`${name}-iframe`), iframeOnload);
+		state.progress = [0, 0];
+		state.active = false;
+		state.updateStatus = function () {
+			loadStatus.update(state);
+		};
+		state.setError = function (error) {
+			loadStatus.setError(error);
+		};
+		const reset = state.reset;
+		state.reset = function () {
+			state.progress = [0, 0];
+			state.active = false;
+			return reset.apply(state);
+		};
+		state.animate = function (time) {
+			if (loadStatus) {
+				loadStatus.animate(time);
+			}
+		};
+		return state;
+	};
+	const editorState = WrappedIFrame('editor');
+	const gameState = WrappedIFrame('game');
+
+	// IFrame size adjuster.
+	const headerDiv = document.getElementById('tabs-buttons');
+	let lastWidth = 0;
+	let lastHeight = 0;
+	const instances = [editorState, gameState];
+	function adjustIframeDimensions(time) {
+		const headerHeight = headerDiv.offsetHeight + 1;
+		const width = window.innerWidth;
+		const height = window.innerHeight - headerHeight;
+		if (lastWidth !== width || lastHeight !== height) {
+			instances.forEach((e) => {
+				e.iframe.style.width = `${width}px`;
+				e.iframe.style.height = `${height}px`;
+			});
+			lastWidth = width;
+			lastHeight = height;
+		}
+		editorState.animate(time);
+		gameState.animate(time);
+		requestAnimationFrame(adjustIframeDimensions);
+	}
+	requestAnimationFrame(adjustIframeDimensions);
+
+	// Tabs
+	const tabs = [
+		document.getElementById('tab-loader'),
+		document.getElementById('tab-editor'),
+		document.getElementById('tab-game'),
+	];
+	const loaderTitle = document.title;
+	function showTab(name) {
+		tabs.forEach(function (elem) {
+			elem.style.display = elem.id === `tab-${name}` ? 'block' : 'none';
+		});
+		if (name === 'editor' || name === 'game') {
+			const instance = name === 'game' ? gameState : editorState;
+			const title = instance.iframe.contentDocument.title;
+			if (title) {
+				document.title = title;
+			}
+			instance.focus();
+		} else {
+			document.title = loaderTitle;
+		}
+	}
+	function setButtonEnabled(id, enabled) {
+		document.getElementById(id).disabled = enabled ? '' : 'disabled';
+	}
+	function setEditorTabEnabled(enabled) {
+		setButtonEnabled('btn-tab-editor', enabled);
+		setButtonEnabled('btn-close-editor', enabled);
+	}
+	function setGameTabEnabled(enabled) {
+		setButtonEnabled('btn-tab-game', enabled);
+		setButtonEnabled('btn-close-game', enabled);
+	}
+
+	// EngineIFrame Controllers.
+	const persistentPaths = ['/home/web_user'];
+
+	function runGame(gameConfig) {
+		let session = null;
+		const onmessage = (event) => {
+			const cmd = event.data.cmd || '';
+			if (event.data.pid !== gameState.pid) {
+				console.error('Invalid event', event);
+				return;
+			}
+			if (cmd == 'started') {
+				gameState.active = true;
+				gameState.updateStatus();
+				editorState.addSession(session);
+				showTab('game');
+			} else if (cmd == 'error') {
+				gameState.setError(event.data.msg);
+			} else if (cmd == 'progress') {
+				const [current, total] = event.data.msg;
+				gameState.progress = [current, total];
+				gameState.updateStatus();
+			} else if (cmd == 'stopped') {
+				gameState.reset();
+				setGameTabEnabled(false);
+				showTab('editor');
+			} else if (cmd == 'execute' || cmd == 'terminate') {
+				// Not implemented.
+			} else {
+				console.error('Invalid event', event);
+			}
+		};
+		gameState.reset().then(() => {
+			session = gameState.start(gameConfig, onmessage, true);
+		});
+		setGameTabEnabled(true);
+		showTab('game');
+	}
+
+	function runEditor(editorArgs) {
+		let OnEditorExit = function () {
+			gameState.reset();
+			setGameTabEnabled(false);
+			editorState.reset();
+			setEditorTabEnabled(false);
+			showTab('loader');
+		};
+		const onmessage = (event) => {
+			const cmd = event.data.cmd || '';
+			if (editorState.pid !== event.data.pid) {
+				console.error('Invalid event', event);
+				return;
+			}
+			if (cmd == 'started') {
+				editorState.active = true;
+				editorState.updateStatus();
+				showTab('editor');
+			} else if (cmd == 'error') {
+				editorState.setError(event.data.msg);
+			} else if (cmd == 'stopped') {
+				OnEditorExit();
+			} else if (cmd == 'progress') {
+				const [current, total] = event.data.msg;
+				editorState.progress = [current, total];
+				editorState.updateStatus();
+			} else if (cmd == 'execute') {
+				const [newPid, path, args] = event.data.msg; // eslint-disable-line no-unused-vars
+				if (!Array.isArray(args)) {
+					console.error('Invalid event', event);
+					return;
+				}
+				const is_editor = args.findIndex((v) => (v === '--editor' || v === '-e')) !== -1;
+				const is_project_manager = args.findIndex((v) => v === '--project-manager') !== -1;
+				const is_game = !is_editor && !is_project_manager;
+				if (is_game) {
+					const gameConfig = {
+						'pid': newPid,
+						'persistentPaths': persistentPaths,
+						'unloadAfterInit': true,
+						'canvasResizePolicy': 2,
+						'fileSizes': fileSizes,
+						'args': args,
+					};
+					runGame(gameConfig);
+				} else {
+					OnEditorExit = function () {
+						runEditor(args);
+					};
+				}
+			} else if (cmd == 'terminate') {
+				if (gameState.pid !== event.data.msg) {
+					return;
+				}
+				gameState.reset();
+				setGameTabEnabled(false);
+				showTab('editor');
+			} else {
+				console.error('Invalid event', event);
+			}
+		};
+		const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+		// We need at least 6 free threads from the pool to start the editor.
+		// At least 4 more will be reserved for the godot thread pool (3 is the bare minimum with the multithreaded variant of the servers).
+		const concurrency = clamp(navigator.hardwareConcurrency ?? 1, 12, 24);
+		const pid = Math.round(Math.random() * (1 << 30));
+		const editorConfig = {
+			'pid': pid,
+			'persistentPaths': persistentPaths,
+			'unloadAfterInit': true,
+			'canvasResizePolicy': 2,
+			'args': editorArgs,
+			'emscriptenPoolSize': concurrency,
+			'persistentDrops': editorArgs.findIndex((v) => v == '--project-manager') !== -1,
+			'godotPoolSize': Math.floor(concurrency / 3), // Ensures at least 4 threads for the pool (see above).
+			'fileSizes': fileSizes,
+		};
+		gameState.reset();
+		setGameTabEnabled(false);
+		editorState.reset().then(() => editorState.start(editorConfig, onmessage));
+		setEditorTabEnabled(true);
+		showTab('editor');
+	}
+
+	// Button handlers
+	const buttons = {
+		start: document.getElementById('btn-start-editor'),
+		editorShow: document.getElementById('btn-tab-editor'),
+		editorClose: document.getElementById('btn-close-editor'),
+		gameShow: document.getElementById('btn-tab-game'),
+		gameClose: document.getElementById('btn-close-game'),
+	};
+	buttons.start.onclick = function () {
+		if (!Engine.isWebGLAvailable()) {
+			setEditorTabEnabled(true);
+			showTab('editor');
+			editorState.setError('WebGL not available');
+		} else {
+			runEditor(['--project-manager', '--single-window']);
+		}
+	};
+	function closeGame(force) {
+		if (force && !window.confirm('Are you sure you want to forcibly close the game?')) {
+			return;
+		}
+		if (gameState.active && !force) {
+			showTab('game');
+			gameState.stop();
+		} else {
+			gameState.reset();
+			setGameTabEnabled(false);
+			if (editorState.active) {
+				showTab('editor');
+			}
+		}
+	}
+	function closeEditor(force) {
+		if (force && !window.confirm('Are you sure you want to forcibly close the editor?\nClicking "OK" may result in data loss!')) {
+			return;
+		}
+		if (editorState.active && !force) {
+			showTab('editor');
+			editorState.stop();
+		} else {
+			gameState.reset();
+			setGameTabEnabled(false);
+			editorState.reset();
+			setEditorTabEnabled(false);
+			showTab('loader');
+		}
+	}
+	buttons.editorShow.onclick = () => showTab('editor');
+	buttons.editorClose.onclick = () => closeEditor(false);
+	buttons.editorClose.ondblclick = () => closeEditor(true);
+	buttons.gameShow.onclick = () => showTab('game');
+	buttons.gameClose.onclick = () => closeGame(false);
+	buttons.gameClose.ondblclick = () => closeGame(true);
+})();
+		</script>
+	</body>
+</html>

@@ -1,9 +1,6 @@
-Import('env')
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
 
-env.add_source_files(env.core_sources,"*.cpp")
-env.add_source_files(env.core_sources,"*.c")
-#env.core_sources.append("io/fastlz.c")
+Import("env")
 
-Export('env')
-
-
+env.add_source_files(env.core_sources, "*.cpp")

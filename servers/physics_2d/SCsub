@@ -1,4 +1,10 @@
-Import('env')
+#!/usr/bin/env python
+from misc.utility.scons_hints import *
 
-env.add_source_files(env.servers_sources,"*.cpp")
+Import("env")
 
+if not env["disable_physics_2d"]:
+    env.add_source_files(env.servers_sources, "*.cpp")
+
+    SConscript("direct_states/SCsub")
+    SConscript("queries/SCsub")

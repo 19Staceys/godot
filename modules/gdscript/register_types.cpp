@@ -1,100 +1,241 @@
-/*************************************************/
-/*  register_script_types.cpp                    */
-/*************************************************/
-/*            This file is part of:              */
-/*                GODOT ENGINE                   */
-/*************************************************/
-/*       Source code within this file is:        */
-/*  (c) 2007-2010 Juan Linietsky, Ariel Manzur   */
-/*             All Rights Reserved.              */
-/*************************************************/
+/**************************************************************************/
+/*  register_types.cpp                                                    */
+/**************************************************************************/
+/*                         This file is part of:                          */
+/*                             GODOT ENGINE                               */
+/*                        https://godotengine.org                         */
+/**************************************************************************/
+/* Copyright (c) 2014-present Godot Engine contributors (see AUTHORS.md). */
+/* Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.                  */
+/*                                                                        */
+/* Permission is hereby granted, free of charge, to any person obtaining  */
+/* a copy of this software and associated documentation files (the        */
+/* "Software"), to deal in the Software without restriction, including    */
+/* without limitation the rights to use, copy, modify, merge, publish,    */
+/* distribute, sublicense, and/or sell copies of the Software, and to     */
+/* permit persons to whom the Software is furnished to do so, subject to  */
+/* the following conditions:                                              */
+/*                                                                        */
+/* The above copyright notice and this permission notice shall be         */
+/* included in all copies or substantial portions of the Software.        */
+/*                                                                        */
+/* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,        */
+/* EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF     */
+/* MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. */
+/* IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY   */
+/* CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,   */
+/* TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE      */
+/* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
+/**************************************************************************/
 
 #include "register_types.h"
 
-#include "gd_script.h"
-#include "io/resource_loader.h"
-#include "os/file_access.h"
+#include "gdscript.h"
+#include "gdscript_cache.h"
+#include "gdscript_parser.h"
+#include "gdscript_resource_format.h"
+#include "gdscript_tokenizer_buffer.h"
+#include "gdscript_utility_functions.h"
 
+#ifdef TOOLS_ENABLED
+#include "editor/gdscript_editor_language.h"
+#include "editor/gdscript_highlighter.h"
+#include "editor/gdscript_translation_parser_plugin.h"
+#include "editor/script/script_editor_plugin.h"
 
-GDScriptLanguage *script_language_gd=NULL;
-ResourceFormatLoaderGDScript *resource_loader_gd=NULL;
-ResourceFormatSaverGDScript *resource_saver_gd=NULL;
+#ifndef GDSCRIPT_NO_LSP
+#include "language_server/gdscript_language_protocol.h"
+#include "language_server/gdscript_language_server.h"
+#endif
+#endif // TOOLS_ENABLED
+
+#ifdef TESTS_ENABLED
+#include "tests/test_gdscript.h"
+#endif
+
+#include "core/io/file_access.h"
+#include "core/io/resource_loader.h"
+#include "core/io/resource_saver.h"
+#include "core/object/class_db.h"
+
+#ifdef TOOLS_ENABLED
+#include "editor/editor_node.h"
+#include "editor/export/editor_export.h"
+#include "editor/translations/editor_translation_parser.h"
+
+#ifndef GDSCRIPT_NO_LSP
+#include "core/config/engine.h"
+#endif
+#endif // TOOLS_ENABLED
+
+#ifdef TESTS_ENABLED
+#include "tests/test_macros.h"
+#endif
+
+GDScriptLanguage *script_language_gd = nullptr;
+Ref<ResourceFormatLoaderGDScript> resource_loader_gd;
+Ref<ResourceFormatSaverGDScript> resource_saver_gd;
+GDScriptCache *gdscript_cache = nullptr;
 
 #ifdef TOOLS_ENABLED
 
-#include "tools/editor/editor_import_export.h"
-#include "gd_tokenizer.h"
-#include "tools/editor/editor_node.h"
+Ref<GDScriptEditorTranslationParserPlugin> gdscript_translation_parser_plugin;
 
-class EditorExportGDScript : public EditorExportPlugin {
+class GDScriptExportPlugin : public EditorExportPlugin {
+	GDSOFTCLASS(GDScriptExportPlugin, EditorExportPlugin);
 
-	OBJ_TYPE(EditorExportGDScript,EditorExportPlugin);
+	static constexpr EditorExportPreset::ScriptExportMode DEFAULT_SCRIPT_MODE = EditorExportPreset::MODE_SCRIPT_BINARY_TOKENS_COMPRESSED;
+	EditorExportPreset::ScriptExportMode script_mode = DEFAULT_SCRIPT_MODE;
 
-public:
+protected:
+	virtual void _export_begin(const HashSet<String> &p_features, bool p_debug, const String &p_path, int p_flags) override {
+		script_mode = DEFAULT_SCRIPT_MODE;
 
-	virtual Vector<uint8_t> custom_export(String& p_path,const Ref<EditorExportPlatform> &p_platform) {
-		//compile gdscript to bytecode
-		if (p_path.ends_with(".gd")) {
-			Vector<uint8_t> file = FileAccess::get_file_as_array(p_path);
-			if (file.empty())
-				return file;
-			String txt;
-			txt.parse_utf8((const char*)file.ptr(),file.size());
-			file = GDTokenizerBuffer::parse_code_string(txt);
-			if (!file.empty()) {
-				print_line("PREV: "+p_path);
-				p_path=p_path.basename()+".gdc";
-				print_line("NOW: "+p_path);
-				return file;
-			}
-
+		const Ref<EditorExportPreset> &preset = get_export_preset();
+		if (preset.is_valid()) {
+			script_mode = preset->get_script_export_mode();
 		}
-
-		return Vector<uint8_t>();
 	}
 
+	virtual void _export_file(const String &p_path, const String &p_type, const HashSet<String> &p_features) override {
+		if (p_path.get_extension() != "gd" || script_mode == EditorExportPreset::MODE_SCRIPT_TEXT) {
+			return;
+		}
 
-	EditorExportGDScript(){}
+		Vector<uint8_t> file = FileAccess::get_file_as_bytes(p_path);
+		if (file.is_empty()) {
+			return;
+		}
 
+		String source = String::utf8(reinterpret_cast<const char *>(file.ptr()), file.size());
+		GDScriptTokenizerBuffer::CompressMode compress_mode = script_mode == EditorExportPreset::MODE_SCRIPT_BINARY_TOKENS_COMPRESSED ? GDScriptTokenizerBuffer::COMPRESS_ZSTD : GDScriptTokenizerBuffer::COMPRESS_NONE;
+		file = GDScriptTokenizerBuffer::parse_code_string(source, compress_mode);
+		if (file.is_empty()) {
+			return;
+		}
+
+		add_file(p_path.get_basename() + ".gdc", file, true);
+	}
+
+public:
+	virtual String get_name() const override { return "GDScript"; }
 };
 
-static void register_editor_plugin() {
-
-	Ref<EditorExportGDScript> egd = memnew( EditorExportGDScript );
-	EditorImportExport::get_singleton()->add_export_plugin(egd);
-}
-
-
-#endif
-
-void register_gdscript_types() {
-
-
-	script_language_gd=memnew( GDScriptLanguage );
-	script_language_gd->init();
-	ScriptServer::register_language(script_language_gd);
-	ObjectTypeDB::register_type<GDScript>();
-	resource_loader_gd=memnew( ResourceFormatLoaderGDScript );
-	ResourceLoader::add_resource_format_loader(resource_loader_gd);
-	resource_saver_gd=memnew( ResourceFormatSaverGDScript );
-	ResourceSaver::add_resource_format_saver(resource_saver_gd);
+static void _editor_init() {
+	Ref<GDScriptExportPlugin> gd_export;
+	gd_export.instantiate();
+	EditorExport::get_singleton()->add_export_plugin(gd_export);
 
 #ifdef TOOLS_ENABLED
-
-	EditorNode::add_init_callback(register_editor_plugin);
+	Ref<GDScriptSyntaxHighlighter> gdscript_syntax_highlighter;
+	gdscript_syntax_highlighter.instantiate();
+	ScriptEditor::get_singleton()->register_syntax_highlighter(gdscript_syntax_highlighter);
 #endif
-
 }
-void unregister_gdscript_types() {
 
+#endif // TOOLS_ENABLED
 
+void initialize_gdscript_module(ModuleInitializationLevel p_level) {
+	if (p_level == MODULE_INITIALIZATION_LEVEL_SERVERS) {
+		GDREGISTER_CLASS(GDScript);
+		GDREGISTER_INTERNAL_CLASS(GDScriptFunctionState);
 
+		script_language_gd = memnew(GDScriptLanguage);
+		ScriptServer::register_language(script_language_gd);
 
-	if (script_language_gd)
-		memdelete( script_language_gd );
-	if (resource_loader_gd)
-		memdelete( resource_loader_gd );
-	if (resource_saver_gd)
-		memdelete( resource_saver_gd );
+		resource_loader_gd.instantiate();
+		ResourceLoader::add_resource_format_loader(resource_loader_gd);
 
+		resource_saver_gd.instantiate();
+		ResourceSaver::add_resource_format_saver(resource_saver_gd);
+
+		gdscript_cache = memnew(GDScriptCache);
+
+		GDScriptUtilityFunctions::register_functions();
+	}
+
+#ifdef TOOLS_ENABLED
+	if (p_level == MODULE_INITIALIZATION_LEVEL_SERVERS) {
+		EditorNode::add_init_callback(_editor_init);
+
+		gdscript_translation_parser_plugin.instantiate();
+		EditorTranslationParser::get_singleton()->add_parser(gdscript_translation_parser_plugin, EditorTranslationParser::STANDARD);
+	} else if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
+		memnew(GDScriptEditorLanguage);
+
+		GDREGISTER_CLASS(GDScriptSyntaxHighlighter);
+#ifndef GDSCRIPT_NO_LSP
+		register_lsp_types();
+		memnew(GDScriptLanguageProtocol);
+		EditorPlugins::add_by_type<GDScriptLanguageServer>();
+
+		Engine::Singleton singleton("GDScriptLanguageProtocol", GDScriptLanguageProtocol::get_singleton());
+		singleton.editor_only = true;
+		Engine::get_singleton()->add_singleton(singleton);
+#endif // !GDSCRIPT_NO_LSP
+	}
+#endif // TOOLS_ENABLED
 }
+
+void uninitialize_gdscript_module(ModuleInitializationLevel p_level) {
+	if (p_level == MODULE_INITIALIZATION_LEVEL_SERVERS) {
+		ScriptServer::unregister_language(script_language_gd);
+
+		memdelete(gdscript_cache);
+		memdelete(script_language_gd);
+
+		ResourceLoader::remove_resource_format_loader(resource_loader_gd);
+		resource_loader_gd.unref();
+
+		ResourceSaver::remove_resource_format_saver(resource_saver_gd);
+		resource_saver_gd.unref();
+
+		GDScriptParser::cleanup();
+		GDScriptUtilityFunctions::unregister_functions();
+	}
+
+#ifdef TOOLS_ENABLED
+	if (p_level == MODULE_INITIALIZATION_LEVEL_EDITOR) {
+		EditorTranslationParser::get_singleton()->remove_parser(gdscript_translation_parser_plugin, EditorTranslationParser::STANDARD);
+		gdscript_translation_parser_plugin.unref();
+#ifndef GDSCRIPT_NO_LSP
+		memdelete(GDScriptLanguageProtocol::get_singleton());
+#endif // GDSCRIPT_NO_LSP
+		memdelete(GDScriptEditorLanguage::get_singleton());
+	}
+#endif // TOOLS_ENABLED
+}
+
+#ifdef TESTS_ENABLED
+int test_tokenizer() {
+	GDScriptTests::test(GDScriptTests::TestType::TEST_TOKENIZER);
+	return 0;
+}
+
+int test_tokenizer_buffer() {
+	GDScriptTests::test(GDScriptTests::TestType::TEST_TOKENIZER_BUFFER);
+	return 0;
+}
+
+int test_parser() {
+	GDScriptTests::test(GDScriptTests::TestType::TEST_PARSER);
+	return 0;
+}
+
+int test_compiler() {
+	GDScriptTests::test(GDScriptTests::TestType::TEST_COMPILER);
+	return 0;
+}
+
+int test_bytecode() {
+	GDScriptTests::test(GDScriptTests::TestType::TEST_BYTECODE);
+	return 0;
+}
+
+REGISTER_TEST_COMMAND("gdscript-tokenizer", &test_tokenizer);
+REGISTER_TEST_COMMAND("gdscript-tokenizer-buffer", &test_tokenizer_buffer);
+REGISTER_TEST_COMMAND("gdscript-parser", &test_parser);
+REGISTER_TEST_COMMAND("gdscript-compiler", &test_compiler);
+REGISTER_TEST_COMMAND("gdscript-bytecode", &test_bytecode);
+REGISTER_TEST_COMMAND("gdscript-generate-tests", &GDScriptTests::generate_tests);
+#endif
